@@ -1,0 +1,22 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+build/
+/captures
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.aab
+*.jks
+*.keystore
+*.log
+*.pyc
+__pycache__/
+
+# Katta modellar GitHub'ga yuklanmasin (Sozlamalardan yuklanadi yoki import qilinadi)
+app/src/main/assets/models/**/*.onnx
+app/src/main/assets/models/**/*.bin
+app/src/main/assets/models/nllb/

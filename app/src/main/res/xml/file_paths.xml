@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Faqat tayyor dublyaj videolari ulashiladi -->
+    <external-files-path name="dubbed_output" path="dublaj/output/" />
+</paths>

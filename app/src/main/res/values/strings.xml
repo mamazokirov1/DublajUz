@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DublajUz</string>
+    <string name="subtitle">Offline o\'zbekcha video dublyaj</string>
+    <string name="select_video">Video tanlash</string>
+    <string name="transcribe">Transkripsiya</string>
+    <string name="translate">Tarjima</string>
+    <string name="edit_translation">Tarjimani tahrirlash</string>
+    <string name="dub">Dublyaj</string>
+    <string name="settings">Sozlamalar</string>
+    <string name="status_ready">Tayyor</string>
+    <string name="status_working">Ishlamoqda…</string>
+    <string name="status_done">Tugadi</string>
+    <string name="status_error">Xato</string>
+    <string name="approve_translation">Tarjimani tasdiqlash</string>
+    <string name="original_volume">Asl audio balandligi</string>
+    <string name="uzbek_volume">O\'zbek audio balandligi</string>
+    <string name="max_atempo">Maksimal tezlik</string>
+    <string name="whisper_model">Whisper modeli</string>
+    <string name="download_models">Modellarni yuklash</string>
+    <string name="pipeline_full">Boshidan oxirigacha</string>
+</resources>
