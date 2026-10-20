@@ -31,6 +31,20 @@ object VideoMuxer {
         mixer: DubMixer,
         onProgress: (Float) -> Unit = {}
     ): File {
+        // MP4 ga yozib bo'lmaydigan kodek (VP9/VP8 ...) bo'lsa — avval H.264 ga qayta kodlaymiz
+        val srcMime = probeVideoMime(videoFile)
+        if (srcMime != null && srcMime !in MP4_VIDEO) {
+            Timber.i("Video kodeki $srcMime MP4 ga mos emas — H.264 ga qayta kodlanadi")
+            outFile.parentFile?.mkdirs()
+            val tmp = File(outFile.parentFile, outFile.nameWithoutExtension + ".h264.tmp.mp4")
+            try {
+                VideoTranscoder.toH264(videoFile, tmp) { onProgress(it * 0.5f) }
+                return mux(tmp, outFile, sampleRate, totalSamples, mixer) { onProgress(0.5f + it * 0.5f) }
+            } finally {
+                tmp.delete()
+            }
+        }
+
         outFile.parentFile?.mkdirs()
         val part = File(outFile.parentFile, outFile.nameWithoutExtension + ".part.mp4")
         if (part.exists()) part.delete()
@@ -185,6 +199,20 @@ object VideoMuxer {
         Timber.i("Mux tayyor: ${outFile.absolutePath} (${outFile.length() / 1024} KB)")
         onProgress(1f)
         return outFile
+    }
+
+    private fun probeVideoMime(file: File): String? {
+        val ex = MediaExtractor()
+        return try {
+            ex.setDataSource(file.absolutePath)
+            (0 until ex.trackCount)
+                .map { ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME) ?: "" }
+                .firstOrNull { it.startsWith("video/") }
+        } catch (_: Exception) {
+            null
+        } finally {
+            ex.release()
+        }
     }
 
     private fun readRotation(file: File): Int {
