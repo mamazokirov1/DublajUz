@@ -12,6 +12,7 @@ build/
 *.aab
 *.jks
 *.keystore
+!app/dublaj-sign.keystore
 *.log
 *.pyc
 __pycache__/

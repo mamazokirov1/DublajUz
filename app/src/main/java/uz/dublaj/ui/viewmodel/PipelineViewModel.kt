@@ -20,6 +20,7 @@ import uz.dublaj.data.TranslationUnit
 import uz.dublaj.data.UserCancelled
 import uz.dublaj.pipeline.DubbingPipeline
 import uz.dublaj.service.PipelineService
+import uz.dublaj.util.StorageScanner
 import java.io.File
 
 /** Yagona (Activity darajasidagi) ViewModel: barcha ekranlar shu nusxani ulashadi. */
@@ -69,7 +70,14 @@ class PipelineViewModel : ViewModel() {
             _translationUnits.value = r.units
             _approved.value = r.approved
         }
-        refreshModels(app)
+        // Modellar yetishmasa va ruxsat bor bo'lsa, Download papkasidan jimgina tiklaymiz
+        viewModelScope.launch {
+            val m = withContext(Dispatchers.IO) { pipeline.modelsInfo(app, _config.value) }
+            _models.value = m
+            if ((!m.whisper || !m.nllb || !m.vits) && StorageScanner.hasAccess(app)) {
+                autoImport(app, quiet = true)
+            }
+        }
     }
 
     fun refreshModels(context: Context) {
@@ -260,6 +268,29 @@ class PipelineViewModel : ViewModel() {
         }
     }
 
+    /** Download va boshqa papkalardan Whisper/NLLB/VITS fayllarini topib nusxalaydi. */
+    fun autoImport(context: Context, quiet: Boolean = false) {
+        val app = context.applicationContext
+        if (isBusy) return
+        if (!StorageScanner.hasAccess(app)) {
+            if (!quiet) _modelStatus.value = "Xato: fayllarga kirish ruxsati berilmagan"
+            return
+        }
+        launchModelTask(app, "Modellar qidirilmoqda…") {
+            val rep = pipeline.autoImport(app) { _modelStatus.value = it }
+            if (rep.found == 0) {
+                if (quiet) {
+                    quietNoop = true
+                } else {
+                    throw IllegalStateException(
+                        "Hech narsa topilmadi. Fayllarni Download papkasiga qo'ying: " +
+                            rep.notFound.joinToString("; ")
+                    )
+                }
+            }
+        }
+    }
+
     fun importNllbFiles(context: Context, uris: List<Uri>) {
         val app = context.applicationContext
         launchModelTask(app, "NLLB fayllari nusxalanmoqda…") {
@@ -316,6 +347,8 @@ class PipelineViewModel : ViewModel() {
         }
     }
 
+    private var quietNoop = false
+
     private fun launchModelTask(app: Context, label: String, block: suspend () -> Unit) {
         if (job?.isActive == true) return
         pipeline.resetCancel()
@@ -324,7 +357,8 @@ class PipelineViewModel : ViewModel() {
             PipelineService.start(app, label)
             try {
                 withContext(Dispatchers.IO) { block() }
-                _modelStatus.value = "Tayyor ✓"
+                _modelStatus.value = if (quietNoop) null else "Tayyor ✓"
+                quietNoop = false
             } catch (e: CancellationException) {
                 throw e
             } catch (e: UserCancelled) {

@@ -1,6 +1,10 @@
 package uz.dublaj.ui.screens
 
+import android.Manifest
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -17,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import uz.dublaj.stt.WhisperRecognizer
 import uz.dublaj.translate.Languages
 import uz.dublaj.ui.viewmodel.PipelineViewModel
+import uz.dublaj.util.StorageScanner
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,6 +56,28 @@ fun SettingsScreen(
 
     val nllbFilesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
         if (uris.isNotEmpty()) vm.importNllbFiles(context, uris)
+    }
+
+    val accessLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (StorageScanner.hasAccess(context)) vm.autoImport(context)
+    }
+    val legacyPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) vm.autoImport(context)
+    }
+    val startAutoImport: () -> Unit = {
+        if (StorageScanner.hasAccess(context)) {
+            vm.autoImport(context)
+        } else if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                accessLauncher.launch(
+                    Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
+                )
+            } catch (e: Exception) {
+                accessLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            legacyPermLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
     }
 
     Scaffold(
@@ -89,6 +116,17 @@ fun SettingsScreen(
                         }
                     }
 
+                    Button(onClick = { startAutoImport() }, enabled = !vm.isBusy) {
+                        Text("Download papkadan avtomatik import")
+                    }
+                    Text(
+                        "Download (va boshqa papkalar)dan ggml-*.bin, nllb papkasi, vits_uzbek.onnx, " +
+                            "uz_tts_base.json ni o'zi topib nusxalaydi. Birinchi marta \"Barcha fayllarga kirish\" " +
+                            "ruxsatini yoqing.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    HorizontalDivider()
                     Text("Whisper (STT)", style = MaterialTheme.typography.labelLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WhisperRecognizer.MODEL_OPTIONS.forEach { m ->

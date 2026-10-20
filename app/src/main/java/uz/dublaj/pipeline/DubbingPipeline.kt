@@ -102,6 +102,9 @@ class DubbingPipeline {
     fun importNllb(context: Context, treeUri: Uri, onProgress: (String) -> Unit): Int =
         ModelImporter.importNllbTree(context, treeUri, ensure(context), onProgress)
 
+    fun autoImport(context: Context, onProgress: (String) -> Unit): uz.dublaj.util.StorageScanner.ImportReport =
+        uz.dublaj.util.StorageScanner.importAll(context, ensure(context), onProgress)
+
     fun importNllbFiles(context: Context, uris: List<android.net.Uri>, onProgress: (String) -> Unit): Int =
         ModelImporter.importNllbFiles(context, uris, ensure(context), onProgress)
 

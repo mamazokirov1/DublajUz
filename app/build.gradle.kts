@@ -24,6 +24,14 @@ android {
     }
 
     signingConfigs {
+        // Doimiy kalit: har bir build bir xil imzo bilan chiqadi -> APK ustidan yangilanadi,
+        // ilovani o'chirmasdan o'rnatsa bo'ladi (modellar saqlanadi).
+        create("dublaj") {
+            storeFile = file("dublaj-sign.keystore")
+            storePassword = "android"
+            keyAlias = "dublaj"
+            keyPassword = "android"
+        }
         create("release") {
             val ks = System.getenv("KEYSTORE_FILE")
             if (!ks.isNullOrBlank() && file(ks).exists()) {
@@ -44,14 +52,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // O'z keystore bo'lmasa debug kalit bilan imzolanadi -> APK o'rnatiladi
+            // O'z keystore bo'lmasa doimiy 'dublaj' kalit bilan imzolanadi -> APK o'rnatiladi
             signingConfig = if (System.getenv("KEYSTORE_FILE").isNullOrBlank())
-                signingConfigs.getByName("debug")
+                signingConfigs.getByName("dublaj")
             else
                 signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("dublaj")
         }
     }
 
