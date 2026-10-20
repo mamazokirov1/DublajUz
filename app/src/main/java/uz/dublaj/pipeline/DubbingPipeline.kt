@@ -240,7 +240,7 @@ class DubbingPipeline {
             )
         }
 
-        val norm = TextNormalizer(context.applicationContext)
+        val norm = TextNormalizer.fromAssets(context.applicationContext)
         progress(0.02f, "NLLB modeli yuklanmoqda…")
         val translator = NllbTranslator.load(dir, config.threads)
         val result = ArrayList<TranslationUnit>()
@@ -346,7 +346,7 @@ class DubbingPipeline {
         FileUtils.ensureSpace(dir.temp, (duration * OUT_SR * 2 * 2).toLong() + 100L * 1024 * 1024)
         FileUtils.ensureSpace(dir.output, video.length() + 50L * 1024 * 1024)
 
-        val norm = TextNormalizer(context.applicationContext)
+        val norm = TextNormalizer.fromAssets(context.applicationContext)
         val placer = SegmentPlacer(
             totalSec = duration, sr = OUT_SR,
             maxSpeed = config.maxAtempo,

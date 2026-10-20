@@ -20,7 +20,7 @@ import java.io.File
 object AssetModelInstaller {
 
     /**
-     * assets/models/** dagi hamma fayllarni WorkDir.models ga nusxalaydi (mavjud bo'lsa o'tkazib yuboradi).
+     * assets/models papkasidagi hamma fayllarni WorkDir.models ga nusxalaydi (mavjud bo'lsa o'tkazib yuboradi).
      * @return nusxa qilingan fayllar soni
      */
     fun installIfNeeded(context: Context, work: WorkDir): Int {
