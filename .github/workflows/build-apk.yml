@@ -32,8 +32,8 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       # Repodagi gradle-wrapper.jar o'rniga rasmiy Gradle 8.9 ishlatiladi
       - name: Setup Gradle
