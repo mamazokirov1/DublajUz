@@ -49,6 +49,10 @@ fun SettingsScreen(
         uri?.let { vm.importNllb(context, it) }
     }
 
+    val nllbFilesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) vm.importNllbFiles(context, uris)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -119,6 +123,14 @@ fun SettingsScreen(
                             Text("Papkadan import")
                         }
                     }
+                    OutlinedButton(onClick = { nllbFilesPicker.launch(arrayOf("*/*")) }, enabled = !vm.isBusy) {
+                        Text("Fayllarni tanlab import (5 ta)")
+                    }
+                    Text(
+                        "config.json, tokenizer.json, tokenizer_config.json, " +
+                            "encoder_model_quantized.onnx, decoder_model_merged_quantized.onnx — hammasini birdan belgilang.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
 
                     HorizontalDivider()
                     Text("VITS (o'zbekcha TTS)", style = MaterialTheme.typography.labelLarge)

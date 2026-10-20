@@ -59,6 +59,38 @@ object ModelImporter {
         return copied
     }
 
+
+    /**
+     * NLLB fayllarini alohida-alohida tanlab (OpenMultipleDocuments) import qiladi.
+     * Papka cheklovlariga (Download, Android/data) tushmaydi. Fayl nomi bo'yicha to'g'ri joyga qo'yiladi:
+     * encoder/decoder .onnx → nllb/onnx/, qolganlari → nllb/.
+     * @return nusxalangan fayllar soni
+     */
+    fun importNllbFiles(
+        context: Context,
+        uris: List<Uri>,
+        work: WorkDir,
+        onProgress: (String) -> Unit
+    ): Int {
+        val destRoot = NllbTranslator.modelDir(work)
+        val known = NllbTranslator.REQUIRED_FILES +
+            listOf("generation_config.json", "special_tokens_map.json")
+        val byName = known.associateBy { it.substringAfterLast('/') }
+        var copied = 0
+        for (uri in uris) {
+            val name = FileUtils.displayName(context, uri)
+            val rel = byName[name]
+            if (rel == null) {
+                Timber.w("NLLB: kerak emas fayl o'tkazib yuborildi: $name")
+                continue
+            }
+            onProgress("Nusxalanmoqda: $name")
+            importFile(context, uri, File(destRoot, rel))
+            copied++
+        }
+        return copied
+    }
+
     private fun collect(dir: DocumentFile, out: MutableMap<String, DocumentFile>, depth: Int) {
         if (depth > 4) return
         for (f in dir.listFiles()) {

@@ -260,6 +260,17 @@ class PipelineViewModel : ViewModel() {
         }
     }
 
+    fun importNllbFiles(context: Context, uris: List<Uri>) {
+        val app = context.applicationContext
+        launchModelTask(app, "NLLB fayllari nusxalanmoqda…") {
+            val n = pipeline.importNllbFiles(app, uris) { _modelStatus.value = it }
+            if (n == 0) throw IllegalStateException(
+                "Tanlangan fayllar orasida kerakli NLLB fayli yo'q. Kerak: config.json, tokenizer.json, " +
+                    "tokenizer_config.json, encoder_model_quantized.onnx, decoder_model_merged_quantized.onnx"
+            )
+        }
+    }
+
     fun clearWork(context: Context) {
         if (isBusy) return
         val app = context.applicationContext
