@@ -44,7 +44,13 @@ data class AppConfig(
     /** Dublaj gapirganda asl ovoz darajasi (1.0 = pasaytirilmaydi). */
     val duckAmount: Float = 0.4f,
     /** Har bir klip balandligini tenglash. */
-    val levelClips: Boolean = true
+    val levelClips: Boolean = true,
+    // ---- ko'rinish
+    /** false = Oddiy (kam sozlama), true = Mutaxassis (hamma sozlama). */
+    val expertMode: Boolean = false,
+    /** 0 = tizim, 1 = yorug', 2 = qorong'i. */
+    val themeMode: Int = 0,
+    val dynamicColor: Boolean = false
 )
 
 enum class VoicePreset(val label: String) { STANDARD("Standart"), NATURAL("Tabiiy"), CLEAR("Aniq"), FAST("Tez") }

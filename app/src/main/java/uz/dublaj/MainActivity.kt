@@ -24,6 +24,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        uz.dublaj.data.ConfigStore.load(this).let {
+            uz.dublaj.ui.theme.ThemeSettings.mode = it.themeMode
+            uz.dublaj.ui.theme.ThemeSettings.dynamic = it.dynamicColor
+        }
         handleIntent(intent)
         addOnNewIntentListener { handleIntent(it) }
         setContent {

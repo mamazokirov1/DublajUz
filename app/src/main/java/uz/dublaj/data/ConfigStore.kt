@@ -24,7 +24,10 @@ object ConfigStore {
             voicePause = sp.getFloat("voicePause", d.voicePause),
             fitScale = sp.getFloat("fitScale", d.fitScale),
             duckAmount = sp.getFloat("duckAmount", d.duckAmount),
-            levelClips = sp.getBoolean("levelClips", d.levelClips)
+            levelClips = sp.getBoolean("levelClips", d.levelClips),
+            expertMode = sp.getBoolean("expertMode", d.expertMode),
+            themeMode = sp.getInt("themeMode", d.themeMode),
+            dynamicColor = sp.getBoolean("dynamicColor", d.dynamicColor)
         )
     }
 
@@ -45,6 +48,9 @@ object ConfigStore {
             .putFloat("fitScale", c.fitScale)
             .putFloat("duckAmount", c.duckAmount)
             .putBoolean("levelClips", c.levelClips)
+            .putBoolean("expertMode", c.expertMode)
+            .putInt("themeMode", c.themeMode)
+            .putBoolean("dynamicColor", c.dynamicColor)
             .apply()
     }
 }
