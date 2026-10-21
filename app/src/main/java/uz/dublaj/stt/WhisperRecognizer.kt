@@ -56,16 +56,17 @@ class WhisperRecognizer(private val context: Context) {
 
         onProgress(0.9f, "Segmentlar tahlil…")
         val detected = if (langCode == "auto") detectLangHint(result.text) else langCode
-        val units = result.segments.mapIndexed { i, seg ->
-            TranscriptUnit(
-                id = i + 1,
-                start = seg.startMs / 1000.0,
-                end = seg.endMs / 1000.0,
-                text = seg.text.trim(),
-                language = detected
-            )
-        }.filter { it.text.isNotBlank() }
-            .mapIndexed { i, u -> u.copy(id = i + 1) }
+        val units = cleanUnits(
+            result.segments.map { seg ->
+                TranscriptUnit(
+                    id = 0,
+                    start = seg.startMs / 1000.0,
+                    end = seg.endMs / 1000.0,
+                    text = seg.text.trim(),
+                    language = detected
+                )
+            }
+        )
 
         onProgress(1f, "Tayyor: ${units.size} segment")
         return Result(detected, units, result.text.trim())
@@ -83,12 +84,36 @@ class WhisperRecognizer(private val context: Context) {
         loadedModelPath = null
     }
 
+
+    /**
+     * Whisper chiqishini tozalash (Python speech_recognizer porti):
+     * nutq bo'lmagan belgilar ([Music], (kulgi), ♪), bir xil gapning 3+ marta takrori (gallyutsinatsiya),
+     * ustma-ust vaqtlarni tuzatish va juda qisqa bo'laklarni olib tashlash.
+     */
+    private fun cleanUnits(raw: List<TranscriptUnit>): List<TranscriptUnit> {
+        val out = ArrayList<TranscriptUnit>()
+        var prevEnd = 0.0
+        for (u in raw.sortedBy { it.start }) {
+            val text = u.text.replace(Regex("\\s+"), " ").trim()
+            if (text.none { it.isLetterOrDigit() } || NON_SPEECH.matches(text)) continue
+            val n = out.size
+            if (n >= 2 && out[n - 1].text.equals(text, true) && out[n - 2].text.equals(text, true)) continue
+            val start = maxOf(u.start, prevEnd)
+            if (u.end - start < 0.05) continue
+            out.add(u.copy(start = start, text = text))
+            prevEnd = u.end
+        }
+        return out.mapIndexed { i, u -> u.copy(id = i + 1) }
+    }
+
     private fun detectLangHint(text: String): String {
         val cyr = text.count { it in '\u0400'..'\u04FF' }
         return if (cyr > text.length / 10) "ru" else "en"
     }
 
     companion object {
+        private val NON_SPEECH = Regex("^\\s*(\\[[^\\]]*\\]|\\([^)]*\\)|\\*[^*]*\\*|♪[^♪]*♪?)\\s*$")
+
         /** Faqat bepul AAR qo'llaydigan (kvantlanmagan) modellar. */
         val MODEL_OPTIONS = listOf(
             ModelInfo("tiny", "ggml-tiny.bin", 75, "eng tez, sifat past"),

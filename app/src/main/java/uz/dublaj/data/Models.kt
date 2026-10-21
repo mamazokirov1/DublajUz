@@ -23,7 +23,7 @@ data class AppConfig(
     val originalVolume: Float = 0.25f,
     val uzbekVolume: Float = 1.0f,
     val maxAtempo: Float = 1.3f,
-    val whisperModel: String = "base",
+    val whisperModel: String = "small",
     val threads: Int = 4,
     val marginS: Float = 0.1f,
     val gapS: Float = 0.08f,

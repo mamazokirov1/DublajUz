@@ -13,7 +13,9 @@ import uz.dublaj.data.UserCancelled
 import uz.dublaj.stt.ModelDownloader
 import uz.dublaj.stt.SttFixes
 import uz.dublaj.stt.WhisperRecognizer
+import uz.dublaj.text.SentenceMerger
 import uz.dublaj.text.TextNormalizer
+import uz.dublaj.text.TranslationQa
 import uz.dublaj.translate.NllbModelDownloader
 import uz.dublaj.translate.NllbTranslator
 import uz.dublaj.tts.VitsSynthesizer
@@ -254,7 +256,10 @@ class DubbingPipeline {
     ): List<TranslationUnit> {
         val progress = wrap(onProgress)
         val dir = ensure(context)
-        val src = loadTranscript(context)
+        val raw = loadTranscript(context)
+        // Whisper bo'laklarini TO'LIQ GAPLARGA birlashtiramiz: tarjima gap bo'yicha bo'ladi
+        val src = SentenceMerger.merge(raw)
+        Timber.i("Gaplar: ${raw.size} segment → ${src.size} gap")
         if (!NllbTranslator.isReady(dir)) {
             throw IllegalStateException(
                 "NLLB modeli to'liq emas. Sozlamalar → NLLB ni yuklang yoki import qiling."
@@ -266,6 +271,7 @@ class DubbingPipeline {
         val translator = NllbTranslator.load(dir, config.threads)
         val result = ArrayList<TranslationUnit>()
         var failed = 0
+        var flagged = 0
         var firstError: String? = null
         try {
             src.forEachIndexed { i, u ->
@@ -273,7 +279,12 @@ class DubbingPipeline {
                 try {
                     val uz = norm.normalize(translator.translate(u.text, u.language))
                     if (uz.isBlank()) throw IllegalStateException("Bo'sh tarjima")
-                    result.add(TranslationUnit(u.id, u.start, u.end, u.text, uz, u.language, false))
+                    val qa = TranslationQa.issue(u.text, uz)
+                    if (qa != null) {
+                        flagged++
+                        Timber.w("Tarjima shubhali #${u.id}: $qa")
+                    }
+                    result.add(TranslationUnit(u.id, u.start, u.end, u.text, uz, u.language, qa != null))
                 } catch (e: UserCancelled) {
                     throw e
                 } catch (e: Exception) {
@@ -293,7 +304,7 @@ class DubbingPipeline {
 
         dir.approvedFlag.delete()
         saveTranslation(context, result)
-        progress(1f, if (failed > 0) "Tayyor ($failed ta segment tekshirilsin)" else "Tarjima tayyor")
+        progress(1f, if (failed + flagged > 0) "Tayyor (${failed + flagged} ta gap tekshirilsin)" else "Tarjima tayyor")
         return result
     }
 
