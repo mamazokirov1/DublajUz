@@ -27,7 +27,8 @@ object ConfigStore {
             levelClips = sp.getBoolean("levelClips", d.levelClips),
             expertMode = sp.getBoolean("expertMode", d.expertMode),
             themeMode = sp.getInt("themeMode", d.themeMode),
-            dynamicColor = sp.getBoolean("dynamicColor", d.dynamicColor)
+            dynamicColor = sp.getBoolean("dynamicColor", d.dynamicColor),
+            autoSaveGallery = sp.getBoolean("autoSaveGallery", d.autoSaveGallery)
         )
     }
 
@@ -51,6 +52,7 @@ object ConfigStore {
             .putBoolean("expertMode", c.expertMode)
             .putInt("themeMode", c.themeMode)
             .putBoolean("dynamicColor", c.dynamicColor)
+            .putBoolean("autoSaveGallery", c.autoSaveGallery)
             .apply()
     }
 }

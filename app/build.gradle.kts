@@ -12,8 +12,10 @@ android {
         applicationId = "uz.dublaj"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0-alpha"
+        // CI: -PbuildNumber=<run_number>; yangilanish tekshiruvi shu raqamga tayanadi
+        val buildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 4
+        versionCode = buildNumber
+        versionName = "0.4.$buildNumber"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

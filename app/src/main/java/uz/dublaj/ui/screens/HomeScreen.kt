@@ -2,6 +2,7 @@ package uz.dublaj.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -11,6 +12,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -39,6 +41,12 @@ import uz.dublaj.ui.components.*
 import uz.dublaj.ui.theme.findActivity
 import uz.dublaj.ui.viewmodel.PipelineViewModel
 import uz.dublaj.util.BugReport
+import uz.dublaj.util.ExportUtils
+import uz.dublaj.util.HistoryEntry
+import uz.dublaj.util.HistoryStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uz.dublaj.util.OutputUtils
 import java.io.File
 
@@ -47,8 +55,10 @@ fun HomeScreen(
     vm: PipelineViewModel,
     onEditTranslation: () -> Unit,
     onSettings: () -> Unit,
-    onHistory: () -> Unit
+    onHistory: () -> Unit,
+    onQueue: () -> Unit
 ) {
+    val update by vm.update.collectAsState()
     val state by vm.state.collectAsState()
     val videoUri by vm.videoUri.collectAsState()
     val hasTranscript by vm.hasTranscript.collectAsState()
@@ -65,7 +75,13 @@ fun HomeScreen(
     val modelsReady = models.whisper && models.nllb && models.vits
     val autoImport = rememberAutoImportAction(vm)
 
-    LaunchedEffect(Unit) { vm.restore(context) }
+    LaunchedEffect(Unit) {
+        vm.restore(context)
+        vm.checkUpdate(context, manual = false)
+    }
+    val recents by produceState<List<HistoryEntry>>(emptyList(), state) {
+        value = withContext(Dispatchers.IO) { HistoryStore.list(context).take(6) }
+    }
 
     // Hero ostida status bar belgilari oq bo'lsin
     val view = LocalView.current
@@ -116,7 +132,8 @@ fun HomeScreen(
                 title = "DublajUz",
                 subtitle = "Offline o'zbekcha video dublyaj",
                 onSettings = onSettings,
-                onHistory = onHistory
+                onHistory = onHistory,
+                onQueue = onQueue
             )
 
             Column(
@@ -291,7 +308,84 @@ fun HomeScreen(
                         Text("Ovoz sozlamalari va tinglab ko'rish")
                     }
                 }
+
+                // ---- so'nggi dublyajlar (ilova yopilsa ham saqlanadi)
+                if (recents.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "So'nggi dublyajlar",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = onHistory) { Text("Hammasi") }
+                    }
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        recents.forEach { RecentCard(it) }
+                    }
+                }
             }
+        }
+    }
+
+    update?.let { u ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissUpdate(context, false) },
+            title = { Text("Yangi versiya mavjud") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(u.versionName, style = MaterialTheme.typography.titleMedium)
+                    if (u.notes.isNotBlank()) Text(u.notes.take(400), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Yuklab olgach, o'rnatishda \"Yangilash\" ni bosing. Modellar va tarix saqlanadi.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.url))) }
+                    catch (e: Exception) { Toast.makeText(context, "Brauzer topilmadi", Toast.LENGTH_SHORT).show() }
+                    vm.dismissUpdate(context, false)
+                }) { Text("Yuklab olish") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { vm.dismissUpdate(context, true) }) { Text("O'tkazib yuborish") }
+                    TextButton(onClick = { vm.dismissUpdate(context, false) }) { Text("Keyinroq") }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun RecentCard(entry: HistoryEntry) {
+    val context = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    val info by rememberVideoInfo(file = entry.video)
+    Card(
+        modifier = Modifier.width(160.dp).clickable {
+            try { context.startActivity(OutputUtils.viewIntent(context, entry.video)) }
+            catch (e: Exception) { Toast.makeText(context, "Video ochuvchi ilova topilmadi", Toast.LENGTH_SHORT).show() }
+        },
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = cs.surface)
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(cs.surfaceVariant)) {
+            info?.thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            Icon(
+                Icons.Default.PlayCircle, null, tint = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.align(Alignment.Center).size(34.dp)
+            )
+        }
+        Column(Modifier.padding(10.dp)) {
+            Text(
+                entry.title.ifBlank { "Dublyaj" }, style = MaterialTheme.typography.labelLarge, maxLines = 1
+            )
+            Text(fmtSize(entry.sizeBytes), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
         }
     }
 }
@@ -391,6 +485,7 @@ private fun RunningCard(s: PipelineState.Running, onCancel: () -> Unit) {
 @Composable
 private fun SuccessCard(file: File) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
     Card(
         shape = MaterialTheme.shapes.large,
@@ -405,7 +500,7 @@ private fun SuccessCard(file: File) {
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("Dublyaj tayyor!", style = MaterialTheme.typography.titleLarge, color = cs.onSecondaryContainer)
-                    Text(file.name, style = MaterialTheme.typography.bodySmall, color = cs.onSecondaryContainer.copy(alpha = 0.8f))
+                    Text("Tarixda saqlandi ✓", style = MaterialTheme.typography.bodySmall, color = cs.onSecondaryContainer.copy(alpha = 0.8f))
                 }
             }
             Button(
@@ -442,6 +537,38 @@ private fun SuccessCard(file: File) {
                     Icon(Icons.Default.SaveAlt, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Galereya")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = {
+                        Toast.makeText(context, "Audio tayyorlanmoqda…", Toast.LENGTH_SHORT).show()
+                        scope.launch {
+                            try {
+                                val m4a = withContext(Dispatchers.IO) { ExportUtils.ensureM4a(file) }
+                                context.startActivity(ExportUtils.shareIntent(context, m4a, "audio/mp4", "Audio ulashish"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Audio ajratilmadi: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.AudioFile, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Audio")
+                }
+                FilledTonalButton(
+                    onClick = {
+                        val srt = ExportUtils.srtFile(file, true)
+                        if (srt.isFile) context.startActivity(ExportUtils.shareIntent(context, srt, "application/x-subrip", "Subtitr ulashish"))
+                        else Toast.makeText(context, "Subtitr topilmadi", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Subtitles, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Subtitr")
                 }
             }
         }

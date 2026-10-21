@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Warning
@@ -15,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import uz.dublaj.ui.components.fmtTime
+import uz.dublaj.util.ExportUtils
+import uz.dublaj.util.SrtExporter
 import uz.dublaj.ui.viewmodel.PipelineViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,6 +30,7 @@ fun EditTranslationScreen(
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val pending = units.count { it.check }
+    var menu by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = cs.background,
@@ -53,7 +57,29 @@ fun EditTranslationScreen(
                         Spacer(Modifier.width(6.dp))
                         Text("Saqlash")
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Menyu") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Subtitr (o'zbekcha .srt)") },
+                                enabled = units.isNotEmpty(),
+                                onClick = {
+                                    menu = false
+                                    val f = SrtExporter.tempFile(context, units, true)
+                                    context.startActivity(ExportUtils.shareIntent(context, f, "application/x-subrip", "Subtitr ulashish"))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Subtitr (asl til .srt)") },
+                                enabled = units.isNotEmpty(),
+                                onClick = {
+                                    menu = false
+                                    val f = SrtExporter.tempFile(context, units, false)
+                                    context.startActivity(ExportUtils.shareIntent(context, f, "application/x-subrip", "Subtitr ulashish"))
+                                }
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = cs.background)
             )

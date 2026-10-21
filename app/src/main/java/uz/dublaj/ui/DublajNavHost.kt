@@ -15,6 +15,7 @@ import androidx.navigation.compose.rememberNavController
 import uz.dublaj.ui.screens.EditTranslationScreen
 import uz.dublaj.ui.screens.HistoryScreen
 import uz.dublaj.ui.screens.HomeScreen
+import uz.dublaj.ui.screens.QueueScreen
 import uz.dublaj.ui.screens.SettingsScreen
 import uz.dublaj.ui.viewmodel.PipelineViewModel
 
@@ -23,6 +24,7 @@ object Routes {
     const val EDIT = "edit"
     const val SETTINGS = "settings"
     const val HISTORY = "history"
+    const val QUEUE = "queue"
 }
 
 @Composable
@@ -51,11 +53,15 @@ fun DublajNavHost(incomingUri: Uri? = null, onIncomingConsumed: () -> Unit = {})
                 vm = vm,
                 onEditTranslation = { navController.navigate(Routes.EDIT) },
                 onSettings = { navController.navigate(Routes.SETTINGS) },
-                onHistory = { navController.navigate(Routes.HISTORY) }
+                onHistory = { navController.navigate(Routes.HISTORY) },
+                onQueue = { navController.navigate(Routes.QUEUE) }
             )
         }
         composable(Routes.EDIT) {
             EditTranslationScreen(vm = vm, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.QUEUE) {
+            QueueScreen(vm = vm, onBack = { navController.popBackStack() })
         }
         composable(Routes.HISTORY) {
             HistoryScreen(onBack = { navController.popBackStack() })

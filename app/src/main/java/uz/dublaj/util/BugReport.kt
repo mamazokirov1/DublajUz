@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import uz.dublaj.data.AppConfig
 import uz.dublaj.data.ModelsInfo
@@ -11,6 +12,7 @@ import java.io.File
 
 /** Muammo/taklif hisoboti: qurilma ma'lumoti + sozlamalar + oxirgi loglar. Video va matn kirmaydi. */
 object BugReport {
+    const val ADMIN_EMAIL = "shoirjon0123@gmail.com"
 
     fun hasCrash(context: Context) = CrashLogger.crashFile(context).isFile
 
@@ -52,14 +54,28 @@ object BugReport {
         return out
     }
 
+    /** Hisobotni faqat ilova adminiga (Gmail) yuborish oynasini ochadi. */
     fun share(context: Context, file: File) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_STREAM, uri)
+        fun mail(pkg: String?) = Intent(Intent.ACTION_SEND).apply {
+            type = "message/rfc822"
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(ADMIN_EMAIL))
             putExtra(Intent.EXTRA_SUBJECT, "DublajUz: muammo / taklif")
+            putExtra(Intent.EXTRA_TEXT, "Salom! Hisobot faylda ilova qilingan.\n\n")
+            putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (pkg != null) setPackage(pkg)
         }
-        context.startActivity(Intent.createChooser(send, "Hisobotni yuborish").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        try {
+            context.startActivity(mail("com.google.android.gm").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            try {
+                context.startActivity(
+                    Intent.createChooser(mail(null), "Email ilovasini tanlang").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (e2: Exception) {
+                Toast.makeText(context, "Email ilovasi topilmadi. Hisobotni $ADMIN_EMAIL manziliga yuboring.", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 }

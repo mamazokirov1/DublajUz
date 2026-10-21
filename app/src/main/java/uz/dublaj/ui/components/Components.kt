@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Queue
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -58,7 +59,8 @@ fun GradientHero(
     title: String,
     subtitle: String,
     onSettings: () -> Unit,
-    onHistory: () -> Unit
+    onHistory: () -> Unit,
+    onQueue: () -> Unit
 ) {
     Box(
         Modifier
@@ -88,6 +90,9 @@ fun GradientHero(
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.headlineMedium, color = Color.White)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+            }
+            IconButton(onClick = onQueue) {
+                Icon(Icons.Default.Queue, contentDescription = "Navbat", tint = Color.White)
             }
             IconButton(onClick = onHistory) {
                 Icon(Icons.Default.History, contentDescription = "Tarix", tint = Color.White)

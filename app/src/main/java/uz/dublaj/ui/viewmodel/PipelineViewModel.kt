@@ -26,7 +26,13 @@ import uz.dublaj.data.TranslationUnit
 import uz.dublaj.data.UserCancelled
 import uz.dublaj.pipeline.DubbingPipeline
 import uz.dublaj.service.PipelineService
+import uz.dublaj.util.FileUtils
+import uz.dublaj.util.OutputUtils
 import uz.dublaj.util.StorageScanner
+import uz.dublaj.util.UpdateChecker
+import uz.dublaj.data.QueueItem
+import uz.dublaj.data.QueueStatus
+import kotlinx.coroutines.flow.update
 import java.io.File
 
 /** Yagona (Activity darajasidagi) ViewModel: barcha ekranlar shu nusxani ulashadi. */
@@ -270,10 +276,12 @@ class PipelineViewModel : ViewModel() {
         launchTask(context, "Dublyaj") {
             val cfg = _config.value
             val units = _translationUnits.value
+            val app = context.applicationContext
+            val title = _videoUri.value?.let { FileUtils.displayName(app, it) } ?: ""
             val out: File = withContext(Dispatchers.IO) {
-                pipeline.dub(context.applicationContext, units, cfg) { p, m ->
+                pipeline.dub(app, units, cfg, title) { p, m ->
                     _state.value = PipelineState.Running("Dublyaj", p, m)
-                }
+                }.also { autoSave(app, it, cfg) }
             }
             _state.value = PipelineState.Success(out.absolutePath)
         }
@@ -423,6 +431,138 @@ class PipelineViewModel : ViewModel() {
             } finally {
                 PipelineService.stop(app)
             }
+        }
+    }
+
+    // ------------------------------------------------------------------ yangilanish
+
+    private val _update = MutableStateFlow<UpdateChecker.Result.Available?>(null)
+    val update: StateFlow<UpdateChecker.Result.Available?> = _update.asStateFlow()
+    private val _updateMessage = MutableStateFlow<String?>(null)
+    val updateMessage: StateFlow<String?> = _updateMessage.asStateFlow()
+
+    /** manual = true: foydalanuvchi o'zi bosdi (natija har doim ko'rsatiladi). */
+    fun checkUpdate(context: Context, manual: Boolean) {
+        val app = context.applicationContext
+        if (!manual && !UpdateChecker.shouldAutoCheck(app)) return
+        viewModelScope.launch {
+            if (manual) _updateMessage.value = "Tekshirilmoqda…"
+            val r = withContext(Dispatchers.IO) { UpdateChecker.check(app) }
+            if (r !is UpdateChecker.Result.Failed) UpdateChecker.markChecked(app)
+            when (r) {
+                is UpdateChecker.Result.Available -> {
+                    if (manual || !UpdateChecker.isSkipped(app, r.build)) _update.value = r
+                    _updateMessage.value = "Yangi versiya mavjud: ${r.versionName}"
+                }
+                UpdateChecker.Result.UpToDate -> if (manual) _updateMessage.value = "Sizda eng so'nggi versiya ✓"
+                is UpdateChecker.Result.Failed -> if (manual) _updateMessage.value = r.message
+            }
+        }
+    }
+
+    fun dismissUpdate(context: Context, skipThis: Boolean) {
+        _update.value?.let { if (skipThis) UpdateChecker.skip(context.applicationContext, it.build) }
+        _update.value = null
+    }
+
+    // ------------------------------------------------------------------ navbat
+
+    private val _queue = MutableStateFlow<List<QueueItem>>(emptyList())
+    val queue: StateFlow<List<QueueItem>> = _queue.asStateFlow()
+    private var queueSeq = 0L
+
+    fun addToQueue(context: Context, uris: List<Uri>) {
+        val app = context.applicationContext
+        val items = uris.map { QueueItem(id = ++queueSeq, uri = it, name = FileUtils.displayName(app, it)) }
+        _queue.update { it + items }
+    }
+
+    fun removeFromQueue(id: Long) {
+        _queue.update { list -> list.filterNot { it.id == id && it.status != QueueStatus.RUNNING } }
+    }
+
+    fun clearFinishedQueue() {
+        _queue.update { list -> list.filter { it.status == QueueStatus.WAITING || it.status == QueueStatus.RUNNING } }
+    }
+
+    private fun updateItem(id: Long, f: (QueueItem) -> QueueItem) {
+        _queue.update { list -> list.map { if (it.id == id) f(it) else it } }
+    }
+
+    /** Navbatdagi videolarni ketma-ket avtomatik dublyaj qiladi (tarjimani tekshirmasdan). */
+    fun startQueue(context: Context) {
+        if (isBusy) return
+        val app = context.applicationContext
+        if (_queue.value.none { it.status == QueueStatus.WAITING }) return
+        val cfg = _config.value
+        if (!_models.value.let { it.whisper && it.nllb && it.vits }) {
+            _modelStatus.value = "Xato: navbat uchun uchala model (Whisper, NLLB, VITS) kerak"
+            return
+        }
+        releasePreview()
+        pipeline.resetCancel()
+        // Navbat umumiy ish papkasidan foydalanadi: joriy bitta-video loyihasi tozalanadi
+        _videoUri.value = null
+        _hasTranscript.value = false
+        _translationUnits.value = emptyList()
+        _approved.value = false
+        _state.value = PipelineState.Idle
+
+        job = viewModelScope.launch {
+            PipelineService.start(app, "Navbat ishlamoqda…")
+            try {
+                while (true) {
+                    val item = _queue.value.firstOrNull { it.status == QueueStatus.WAITING } ?: break
+                    updateItem(item.id) { it.copy(status = QueueStatus.RUNNING, progress = 0f, message = "Boshlanmoqda…") }
+                    try {
+                        var skipped = 0
+                        val out = withContext(Dispatchers.IO) {
+                            pipeline.transcribe(app, item.uri, cfg) { p, m ->
+                                updateItem(item.id) { it.copy(progress = p * 0.25f, message = "Transkript: $m") }
+                            }
+                            val translated = pipeline.translate(app, cfg) { p, m ->
+                                updateItem(item.id) { it.copy(progress = 0.25f + p * 0.25f, message = "Tarjima: $m") }
+                            }
+                            // Tarjima qilinmagan gaplar o'tkazib yuboriladi (avtomatik rejimda tahrir yo'q)
+                            skipped = translated.count { it.check }
+                            val units = translated.map { if (it.check) it.copy(uzText = "", check = false) else it }
+                            pipeline.saveTranslation(app, units)
+                            pipeline.markApproved(app)
+                            pipeline.dub(app, units, cfg, item.name) { p, m ->
+                                updateItem(item.id) { it.copy(progress = 0.5f + p * 0.5f, message = m) }
+                            }.also { autoSave(app, it, cfg) }
+                        }
+                        updateItem(item.id) {
+                            it.copy(
+                                status = QueueStatus.DONE, progress = 1f, outputPath = out.absolutePath,
+                                message = if (skipped > 0) "Tayyor ✓ • ⚠ $skipped ta gap tarjima qilinmadi, o'tkazildi" else "Tayyor ✓"
+                            )
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: UserCancelled) {
+                        updateItem(item.id) { it.copy(status = QueueStatus.CANCELLED, message = "Bekor qilindi") }
+                        break
+                    } catch (e: OutOfMemoryError) {
+                        updateItem(item.id) { it.copy(status = QueueStatus.FAILED, message = "Xotira yetmadi") }
+                    } catch (e: Exception) {
+                        Timber.e(e, "Navbat xatosi")
+                        updateItem(item.id) { it.copy(status = QueueStatus.FAILED, message = e.message ?: e.toString()) }
+                    }
+                    withContext(Dispatchers.IO) { pipeline.clearWork(app) }
+                }
+            } finally {
+                PipelineService.stop(app)
+            }
+        }
+    }
+
+    private fun autoSave(app: Context, out: File, cfg: AppConfig) {
+        if (!cfg.autoSaveGallery) return
+        try {
+            OutputUtils.saveToGallery(app, out)
+        } catch (e: Exception) {
+            Timber.w(e, "Galereyaga avtomatik saqlanmadi")
         }
     }
 

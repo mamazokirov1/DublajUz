@@ -50,7 +50,9 @@ data class AppConfig(
     val expertMode: Boolean = false,
     /** 0 = tizim, 1 = yorug', 2 = qorong'i. */
     val themeMode: Int = 0,
-    val dynamicColor: Boolean = false
+    val dynamicColor: Boolean = false,
+    /** Tayyor videoni avtomatik Galereyaga (Movies/DublajUz) ham saqlash. */
+    val autoSaveGallery: Boolean = false
 )
 
 enum class VoicePreset(val label: String) { STANDARD("Standart"), NATURAL("Tabiiy"), CLEAR("Aniq"), FAST("Tez") }
@@ -78,3 +80,16 @@ sealed class PipelineState {
 
 /** Foydalanuvchi "Bekor qilish" bosganda tashlanadi. */
 class UserCancelled : RuntimeException("Bekor qilindi")
+
+enum class QueueStatus { WAITING, RUNNING, DONE, FAILED, CANCELLED }
+
+/** Navbatdagi video. */
+data class QueueItem(
+    val id: Long,
+    val uri: android.net.Uri,
+    val name: String,
+    val status: QueueStatus = QueueStatus.WAITING,
+    val progress: Float = 0f,
+    val message: String = "",
+    val outputPath: String? = null
+)

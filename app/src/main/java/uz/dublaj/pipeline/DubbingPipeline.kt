@@ -22,6 +22,9 @@ import uz.dublaj.util.ModelImporter
 import uz.dublaj.util.StreamResampler
 import uz.dublaj.util.WavFile
 import uz.dublaj.util.WorkDir
+import uz.dublaj.util.ExportUtils
+import uz.dublaj.util.HistoryStore
+import uz.dublaj.util.SrtExporter
 import java.io.File
 
 /**
@@ -342,6 +345,7 @@ class DubbingPipeline {
         context: Context,
         units: List<TranslationUnit>,
         config: AppConfig,
+        title: String = "",
         onProgress: (Float, String) -> Unit
     ): File {
         val progress = wrap(onProgress)
@@ -417,6 +421,14 @@ class DubbingPipeline {
         } finally {
             clips.forEach { it.file.delete() }
             dir.mixWav.delete()
+        }
+        // Tarix uchun: metama'lumot va subtitrlar videoning yonida saqlanadi
+        try {
+            HistoryStore.writeMeta(outFile, title, duration, active.size)
+            SrtExporter.write(ExportUtils.srtFile(outFile, true), units, true)
+            SrtExporter.write(ExportUtils.srtFile(outFile, false), units, false)
+        } catch (e: Exception) {
+            Timber.w(e, "Tarix/SRT yozilmadi")
         }
         progress(1f, "Tayyor")
         return outFile

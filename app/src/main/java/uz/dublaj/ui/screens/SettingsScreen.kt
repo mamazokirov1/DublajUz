@@ -25,6 +25,7 @@ import uz.dublaj.ui.components.*
 import uz.dublaj.ui.theme.ThemeSettings
 import uz.dublaj.ui.viewmodel.PipelineViewModel
 import uz.dublaj.util.BugReport
+import uz.dublaj.util.UpdateChecker
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +38,7 @@ fun SettingsScreen(
     val models by vm.models.collectAsState()
     val status by vm.modelStatus.collectAsState()
     val preview by vm.previewState.collectAsState()
+    val updateMessage by vm.updateMessage.collectAsState()
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val expert = config.expertMode
@@ -389,7 +391,8 @@ fun SettingsScreen(
                 subtitle = if (BugReport.hasCrash(context)) "⚠ Oldingi safar ilova to'xtagan" else "Hisobot yaratib yuboring"
             ) {
                 Text(
-                    "Hisobotga faqat texnik ma'lumot kiradi: qurilma, sozlamalar, oxirgi loglar. Video va matn kirmaydi.",
+                    "Hisobot faqat ilova adminiga (${BugReport.ADMIN_EMAIL}) Gmail orqali yuboriladi. " +
+                        "Unga faqat texnik ma'lumot kiradi: qurilma, sozlamalar, oxirgi loglar. Video va matn kirmaydi.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
                 OutlinedTextField(
@@ -408,10 +411,10 @@ fun SettingsScreen(
                 ) {
                     Icon(Icons.Default.Send, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Hisobotni yuborish")
+                    Text("Adminga yuborish")
                 }
                 Text(
-                    "Ochiladigan ro'yxatdan Telegram yoki Gmail ni tanlang.",
+                    "Gmail ochiladi, manzil va hisobot fayli tayyor turadi, faqat \"Yuborish\" ni bosasiz.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
             }
@@ -426,11 +429,35 @@ fun SettingsScreen(
                     "Video nusxalari va oraliq audio shu yerda turadi. Modellar va tayyor videolar o'chirilmaydi.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
+                SwitchRow(
+                    "Galereyaga avtomatik saqlash",
+                    "Dublyaj tayyor bo'lganda video Movies/DublajUz papkasiga ham saqlanadi. " +
+                        "Ilovani o'chirsangiz ham yo'qolmaydi (Android 10+).",
+                    config.autoSaveGallery
+                ) { vm.setConfig(config.copy(autoSaveGallery = it)) }
                 OutlinedButton(
                     onClick = { vm.clearWork(context) },
                     enabled = !vm.isBusy,
                     shape = MaterialTheme.shapes.medium
                 ) { Text("Vaqtinchalik fayllarni tozalash") }
+            }
+
+            // ---------------- ilova haqida
+            SectionCard(
+                icon = Icons.Default.Info,
+                title = "Ilova haqida",
+                subtitle = "Versiya ${UpdateChecker.currentVersionName(context)}"
+            ) {
+                Button(onClick = { vm.checkUpdate(context, manual = true) }, shape = MaterialTheme.shapes.medium) {
+                    Icon(Icons.Default.SystemUpdate, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Yangilanishni tekshirish")
+                }
+                updateMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.primary) }
+                Text(
+                    "Yangi versiya chiqsa, ilova ochilganda kuniga bir marta o'zi xabar beradi.",
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                )
             }
 
             Spacer(Modifier.navigationBarsPadding().height(16.dp))
