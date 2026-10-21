@@ -2,4 +2,6 @@
 <paths>
     <!-- Faqat tayyor dublyaj videolari ulashiladi -->
     <external-files-path name="dubbed_output" path="dublaj/output/" />
+    <!-- Muammo hisobotlari (matn) -->
+    <cache-path name="reports" path="reports/" />
 </paths>

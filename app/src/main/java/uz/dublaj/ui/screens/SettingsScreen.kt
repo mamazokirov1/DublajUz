@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import uz.dublaj.data.VoicePreset
 import uz.dublaj.stt.WhisperRecognizer
+import uz.dublaj.util.BugReport
 import uz.dublaj.translate.Languages
 import uz.dublaj.ui.viewmodel.PipelineViewModel
 import uz.dublaj.util.StorageScanner
@@ -210,38 +212,165 @@ fun SettingsScreen(
                 }
             }
 
-            // ---------------- ovoz
+            // ---------------- ovoz sifati
+            val preview by vm.previewState.collectAsState()
+            var sample by remember {
+                mutableStateOf("Assalomu alaykum! Bu ovoz sinovi. Tabiiy chiqayotganini tinglab ko'ring.")
+            }
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Ovoz va vaqt", fontWeight = FontWeight.SemiBold)
-
-                    Text("Asl ovoz balandligi: ${(config.originalVolume * 100).roundToInt()}%")
-                    Slider(
-                        value = config.originalVolume,
-                        onValueChange = { vm.setConfig(config.copy(originalVolume = it)) },
-                        valueRange = 0f..0.5f
+                    Text("Ovoz sifati", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Tayyor sozlamani tanlang, so'ng quyida tinglab ko'rib, slayderlar bilan aniqlashtiring.",
+                        style = MaterialTheme.typography.bodySmall
                     )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VoicePreset.values().forEach { p ->
+                            OutlinedButton(
+                                onClick = { vm.applyVoicePreset(p) },
+                                contentPadding = PaddingValues(horizontal = 10.dp)
+                            ) { Text(p.label) }
+                        }
+                    }
 
-                    Text("O'zbekcha ovoz: ${(config.uzbekVolume * 100).roundToInt()}%")
-                    Slider(
-                        value = config.uzbekVolume,
-                        onValueChange = { vm.setConfig(config.copy(uzbekVolume = it)) },
-                        valueRange = 0.5f..1.5f
+                    SettingSlider(
+                        "Intonatsiya (jonlilik): ${"%.2f".format(config.voiceNoise)}",
+                        "Yuqori — ovoz jonliroq, lekin beqaror bo'lishi mumkin. Past — bir tekis, robotroq.",
+                        config.voiceNoise, 0.3f..1.0f
+                    ) { vm.setConfig(config.copy(voiceNoise = it)) }
+
+                    SettingSlider(
+                        "Ritm o'zgaruvchanligi: ${"%.2f".format(config.voiceNoiseW)}",
+                        "Bo'g'inlar uzunligi qanchalik xilma-xil bo'lishi. Yuqori — tabiiyroq ritm.",
+                        config.voiceNoiseW, 0.1f..1.0f
+                    ) { vm.setConfig(config.copy(voiceNoiseW = it)) }
+
+                    SettingSlider(
+                        "Nutq tezligi: ${"%.2f".format(config.voiceSpeed)}×",
+                        "1.0 — oddiy. Past — sekinroq va aniqroq.",
+                        config.voiceSpeed, 0.7f..1.3f
+                    ) { vm.setConfig(config.copy(voiceSpeed = it)) }
+
+                    SettingSlider(
+                        "Pauza (gap ichida): ${"%.2f".format(config.voicePause)} s",
+                        "Uzun gap bo'laklarga bo'linganda orasidagi to'xtash.",
+                        config.voicePause, 0f..0.8f
+                    ) { vm.setConfig(config.copy(voicePause = it)) }
+
+                    SettingSlider(
+                        "Sig'dirish uchun tezlashish: ${"%.2f".format(1f / config.fitScale)}×",
+                        "Gap video vaqtiga sig'masa, ovoz shu darajagacha tezlashtiriladi (ovoz sifati saqlanadi). 1.0 — o'chiq.",
+                        config.fitScale, 0.7f..1.0f
+                    ) { vm.setConfig(config.copy(fitScale = it)) }
+
+                    OutlinedTextField(
+                        value = sample,
+                        onValueChange = { sample = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Tinglash uchun matn") }
                     )
-
-                    Text("Maks. tezlashtirish: ${"%.2f".format(config.maxAtempo)}×")
-                    Slider(
-                        value = config.maxAtempo,
-                        onValueChange = { vm.setConfig(config.copy(maxAtempo = it)) },
-                        valueRange = 1.0f..1.6f
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { vm.previewVoice(context, sample) },
+                            enabled = models.vits && !vm.isBusy
+                        ) { Text("▶ Tinglab ko'rish") }
+                        OutlinedButton(onClick = { vm.stopPreview() }) { Text("■ To'xtatish") }
+                    }
+                    if (!models.vits) {
+                        Text(
+                            "Tinglash uchun avval VITS modelini import qiling.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    preview?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Text(
+                        "Eslatma: haqiqiy dublyajda gaplar video vaqtiga sig'dirilgani uchun ovoz biroz tezroq bo'lishi mumkin.",
+                        style = MaterialTheme.typography.bodySmall
                     )
+                }
+            }
 
-                    Text("CPU oqimlari: ${config.threads}")
-                    Slider(
-                        value = config.threads.toFloat(),
-                        onValueChange = { vm.setConfig(config.copy(threads = it.roundToInt())) },
-                        valueRange = 1f..8f,
-                        steps = 6
+            // ---------------- aralashtirish
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Aralashtirish va tezlik", fontWeight = FontWeight.SemiBold)
+
+                    SettingSlider(
+                        "Asl ovoz (jimlikda): ${(config.originalVolume * 100).roundToInt()}%",
+                        "Videodagi asl ovoz/musiqa balandligi.",
+                        config.originalVolume, 0f..0.6f
+                    ) { vm.setConfig(config.copy(originalVolume = it)) }
+
+                    SettingSlider(
+                        "Dublyaj gapirganda asl ovoz: ${(config.duckAmount * 100).roundToInt()}%",
+                        "Dublyaj gapirayotganda asl ovoz shu darajagacha pasayadi. 100% — pasaytirilmaydi.",
+                        config.duckAmount, 0f..1f
+                    ) { vm.setConfig(config.copy(duckAmount = it)) }
+
+                    SettingSlider(
+                        "O'zbekcha ovoz: ${(config.uzbekVolume * 100).roundToInt()}%",
+                        "Dublyaj ovozi balandligi.",
+                        config.uzbekVolume, 0.5f..1.5f
+                    ) { vm.setConfig(config.copy(uzbekVolume = it)) }
+
+                    SettingSlider(
+                        "Maks. tezlashtirish: ${"%.2f".format(config.maxAtempo)}×",
+                        "Gap baribir sig'masa, tayyor ovoz shu tezlikkacha tezlashtiriladi. Past — tabiiyroq, lekin gaplar ustma-ust tushishi mumkin.",
+                        config.maxAtempo, 1.0f..1.6f
+                    ) { vm.setConfig(config.copy(maxAtempo = it)) }
+
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Balandlikni tenglash")
+                            Text(
+                                "Har bir gap bir xil balandlikda eshitiladi.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(
+                            checked = config.levelClips,
+                            onCheckedChange = { vm.setConfig(config.copy(levelClips = it)) }
+                        )
+                    }
+
+                    SettingSlider(
+                        "CPU oqimlari: ${config.threads}",
+                        "Ko'p — tezroq, lekin telefon qizishi va xotira ko'payishi mumkin.",
+                        config.threads.toFloat(), 1f..8f, steps = 6
+                    ) { vm.setConfig(config.copy(threads = it.roundToInt())) }
+                }
+            }
+
+            // ---------------- yordam
+            var reportNote by remember { mutableStateOf("") }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Muammo yoki taklif yuborish", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Nosozlik, taklif yoki fikringizni yozing. Hisobotga faqat texnik ma'lumot kiradi " +
+                            "(qurilma, sozlamalar, oxirgi loglar). Video va matn kirmaydi.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (BugReport.hasCrash(context)) {
+                        Text(
+                            "⚠ Oldingi safar ilova kutilmaganda to'xtagan. Hisobotni yuborsangiz, sababni topamiz.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    OutlinedTextField(
+                        value = reportNote,
+                        onValueChange = { reportNote = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Izoh (ixtiyoriy)") }
+                    )
+                    Button(onClick = {
+                        val f = BugReport.build(context, config, models, reportNote)
+                        BugReport.share(context, f)
+                    }) { Text("Hisobotni yuborish") }
+                    Text(
+                        "Ochiladigan ro'yxatdan Telegram yoki Gmail ni tanlang.",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
@@ -261,5 +390,22 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+
+@Composable
+private fun SettingSlider(
+    title: String,
+    help: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int = 0,
+    onChange: (Float) -> Unit
+) {
+    Column {
+        Text(title)
+        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onChange, valueRange = range, steps = steps)
+        Text(help, style = MaterialTheme.typography.bodySmall)
     }
 }

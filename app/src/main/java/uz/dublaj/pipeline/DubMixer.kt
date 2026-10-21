@@ -17,7 +17,9 @@ class DubMixer(
     private val original: WavFile?,
     clips: List<SegmentPlacer.Clip>,
     private val originalVol: Float,
-    private val dubVol: Float
+    private val dubVol: Float,
+    /** Dublaj gapirganda asl ovoz ko'paytmasi (1 = pasaytirmaslik). */
+    private val duckGain: Float = 1f
 ) : Closeable {
 
     private class Active(val clip: SegmentPlacer.Clip, val data: ShortArray)
@@ -25,27 +27,16 @@ class DubMixer(
     private val sorted = clips.sortedBy { it.placeAtSample }
     private var nextClip = 0
     private val active = ArrayList<Active>()
+    private var gain = 1f
+    private val attack = (1.0 - Math.exp(-1.0 / (sr * 0.03))).toFloat()
+    private val release = (1.0 - Math.exp(-1.0 / (sr * 0.25))).toFloat()
 
     fun mix(startSample: Long, count: Int): ShortArray {
         val out = FloatArray(count)
-
-        val orig = original
-        if (orig != null && originalVol > 0f) {
-            val ratio = orig.sampleRate.toDouble() / sr
-            val s0 = floor(startSample * ratio).toLong()
-            val need = ceil(count * ratio).toInt() + 2
-            val src = orig.read(s0, need)
-            for (i in 0 until count) {
-                val p = (startSample + i) * ratio - s0
-                val idx = p.toInt().coerceIn(0, src.lastIndex)
-                val f = p - idx
-                val a = src[idx].toInt()
-                val b = src[min(idx + 1, src.lastIndex)].toInt()
-                out[i] = (a + (b - a) * f).toFloat() / 32768f * originalVol
-            }
-        }
-
+        val speech = BooleanArray(count)
         val end = startSample + count
+
+        // ---- dublyaj klip'lari (+ gapirish belgisi)
         while (nextClip < sorted.size && sorted[nextClip].placeAtSample < end) {
             val c = sorted[nextClip++]
             active.add(Active(c, RawPcm.read(c.file)))
@@ -63,8 +54,32 @@ class DubMixer(
             val to = min(end, clipEnd)
             var t = from
             while (t < to) {
-                out[(t - startSample).toInt()] += a.data[(t - clipStart).toInt()] / 32768f * dubVol
+                val i = (t - startSample).toInt()
+                out[i] += a.data[(t - clipStart).toInt()] / 32768f * dubVol
+                speech[i] = true
                 t++
+            }
+        }
+
+        // ---- asl ovoz (gapirganda silliq pasaytiriladi)
+        val orig = original
+        if (orig != null && originalVol > 0f) {
+            val ratio = orig.sampleRate.toDouble() / sr
+            val s0 = floor(startSample * ratio).toLong()
+            val need = ceil(count * ratio).toInt() + 2
+            val src = orig.read(s0, need)
+            val ducking = duckGain < 0.999f
+            for (i in 0 until count) {
+                if (ducking) {
+                    val target = if (speech[i]) duckGain else 1f
+                    gain += (target - gain) * (if (target < gain) attack else release)
+                }
+                val p = (startSample + i) * ratio - s0
+                val idx = p.toInt().coerceIn(0, src.lastIndex)
+                val f = p - idx
+                val a = src[idx].toInt()
+                val b = src[min(idx + 1, src.lastIndex)].toInt()
+                out[i] += (a + (b - a) * f).toFloat() / 32768f * originalVol * gain
             }
         }
 

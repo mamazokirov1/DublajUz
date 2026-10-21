@@ -14,6 +14,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import uz.dublaj.data.AppConfig
+import uz.dublaj.data.ConfigStore
+import uz.dublaj.data.VoicePreset
+import uz.dublaj.data.applyPreset
+import uz.dublaj.tts.VitsSynthesizer
+import uz.dublaj.util.AudioLevel
+import uz.dublaj.util.PcmPlayer
 import uz.dublaj.data.ModelsInfo
 import uz.dublaj.data.PipelineState
 import uz.dublaj.data.TranslationUnit
@@ -63,6 +69,8 @@ class PipelineViewModel : ViewModel() {
         if (restored) return
         restored = true
         val app = context.applicationContext
+        appCtx = app
+        _config.value = ConfigStore.load(app)
         viewModelScope.launch {
             val r = withContext(Dispatchers.IO) { pipeline.restore(app) }
             if (_videoUri.value == null && r.videoFile != null) _videoUri.value = Uri.fromFile(r.videoFile)
@@ -90,7 +98,77 @@ class PipelineViewModel : ViewModel() {
     fun setConfig(c: AppConfig, context: Context? = null) {
         val modelChanged = c.whisperModel != _config.value.whisperModel
         _config.value = c
+        (context?.applicationContext ?: appCtx)?.let { ConfigStore.save(it, c) }
         if (modelChanged && context != null) refreshModels(context)
+    }
+
+    fun applyVoicePreset(p: VoicePreset) = setConfig(_config.value.applyPreset(p))
+
+    // ------------------------------------------------------------------ ovozni tinglab ko'rish
+
+    private var appCtx: Context? = null
+    private var previewSynth: VitsSynthesizer? = null
+    private var previewJob: Job? = null
+    private val _preview = MutableStateFlow<String?>(null)
+    val previewState: StateFlow<String?> = _preview.asStateFlow()
+
+    /** Joriy sozlamalar bilan matnni sintez qilib chaladi. Dublyaj paytida o'chiq (xotira). */
+    fun previewVoice(context: Context, text: String) {
+        val app = context.applicationContext
+        if (isBusy) {
+            _preview.value = "Dublyaj/tarjima ishlayotganda tinglab bo'lmaydi"
+            return
+        }
+        if (text.isBlank()) return
+        if (previewJob?.isActive == true && _preview.value?.startsWith("Ovoz tayyorlanmoqda") == true) return
+        PcmPlayer.stop()
+        previewJob?.cancel()
+        previewJob = viewModelScope.launch {
+            try {
+                _preview.value = "Ovoz tayyorlanmoqda…"
+                val cfg = _config.value
+                val (pcm, sr) = withContext(Dispatchers.Default) {
+                    val synth = previewSynth ?: pipeline.loadPreviewSynth(app, cfg).also { previewSynth = it }
+                    synth.configure(
+                        cfg.voiceNoise, cfg.voiceNoiseW,
+                        1f / cfg.voiceSpeed.coerceAtLeast(0.3f), cfg.fitScale, cfg.voicePause
+                    )
+                    val seg = synth.synthesize(text, null)
+                    (if (cfg.levelClips) AudioLevel.level(seg.pcm) else seg.pcm) to seg.sampleRate
+                }
+                if (pcm.isEmpty()) {
+                    _preview.value = "Matn bo'sh yoki o'qib bo'lmadi"
+                    return@launch
+                }
+                _preview.value = "Ijro etilmoqda…"
+                PcmPlayer.play(pcm, sr)
+                _preview.value = null
+            } catch (e: CancellationException) {
+                _preview.value = null
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Preview xato")
+                _preview.value = "Xato: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    fun stopPreview() {
+        PcmPlayer.stop()
+        if (_preview.value?.startsWith("Ijro") == true) _preview.value = null
+    }
+
+    private fun releasePreview() {
+        PcmPlayer.stop()
+        previewJob?.cancel()
+        previewSynth?.close()
+        previewSynth = null
+        _preview.value = null
+    }
+
+    override fun onCleared() {
+        releasePreview()
+        super.onCleared()
     }
 
     fun setVideo(uri: Uri) {
@@ -188,6 +266,7 @@ class PipelineViewModel : ViewModel() {
             _state.value = PipelineState.Error("Avval tarjimani tasdiqlang")
             return
         }
+        releasePreview()
         launchTask(context, "Dublyaj") {
             val cfg = _config.value
             val units = _translationUnits.value

@@ -28,14 +28,26 @@ class VitsSynthesizer(
     private val env: OrtEnvironment,
     private val sampleRate: Int,
     private val addBlank: Boolean,
-    private val noiseScale: Float,
-    private val noiseScaleW: Float,
-    private val minLengthScale: Float,
+    private var noiseScale: Float,
+    private var noiseScaleW: Float,
+    private var minLengthScale: Float,
     private val maxChars: Int,
-    private val pauseS: Float,
+    private var pauseS: Float,
     private val normalizer: TextNormalizer
 ) {
     private val closed = AtomicBoolean(false)
+
+    /** length_scale boshlang'ich qiymati (1 / nutq tezligi). */
+    @Volatile private var baseScale = 1.0f
+
+    /** Modelni qayta yuklamasdan sintez parametrlarini almashtirish (tinglab ko'rish uchun). */
+    fun configure(noise: Float, noiseW: Float, baseLength: Float, minLength: Float, pause: Float) {
+        noiseScale = noise
+        noiseScaleW = noiseW
+        baseScale = baseLength
+        minLengthScale = minLength
+        pauseS = pause
+    }
 
     data class SegmentAudio(
         val pcm: ShortArray,
@@ -53,13 +65,13 @@ class VitsSynthesizer(
             return SegmentAudio(ShortArray(0), sampleRate, 1f)
         }
 
-        var scale = 1.0f
+        var scale = baseScale
         var audio = synthInternal(prepared, scale)
 
-        if (slotSec != null && slotSec > 0 && minLengthScale < 1f) {
+        if (slotSec != null && slotSec > 0 && minLengthScale < scale) {
             val dur = audio.size.toDouble() / sampleRate
             if (dur > slotSec) {
-                scale = maxOf(minLengthScale, ((slotSec / dur) * 0.97).toFloat())
+                scale = maxOf(minLengthScale, (scale * (slotSec / dur) * 0.97).toFloat())
                 audio = synthInternal(prepared, scale)
             }
         }
@@ -150,7 +162,8 @@ class VitsSynthesizer(
             minLengthScale: Float = 0.8f,
             maxChars: Int = 220,
             pauseS: Float = 0.25f,
-            threads: Int = 4
+            threads: Int = 4,
+            baseLengthScale: Float = 1.0f
         ): VitsSynthesizer {
             val (model, configFile) = modelFiles(work)
             if (!isReady(work)) {
@@ -180,7 +193,7 @@ class VitsSynthesizer(
             return VitsSynthesizer(
                 session, env, sr, addBlank, noiseScale, noiseScaleW,
                 minLengthScale, maxChars, pauseS, normalizer
-            )
+            ).also { it.baseScale = baseLengthScale }
         }
 
         private fun cleanUzbek(text: String): String {

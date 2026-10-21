@@ -9,5 +9,6 @@ class DublajApp : Application() {
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
+        uz.dublaj.util.CrashLogger.install(this)
     }
 }

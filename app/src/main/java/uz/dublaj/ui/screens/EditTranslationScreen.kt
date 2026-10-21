@@ -5,9 +5,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -63,11 +65,17 @@ fun EditTranslationScreen(
                         else CardDefaults.cardColors()
                     ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                "#${unit.id}  ${"%.1f".format(unit.start)}s – ${"%.1f".format(unit.end)}s  [${unit.language}]",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "#${unit.id}  ${"%.1f".format(unit.start)}s – ${"%.1f".format(unit.end)}s  [${unit.language}]",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = { vm.previewVoice(context, text) }) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = "Tinglab ko'rish")
+                                }
+                            }
                             if (unit.check) {
                                 Text(
                                     "⚠ Tarjima qilinmadi — o'zbekcha matnni o'zingiz yozing",

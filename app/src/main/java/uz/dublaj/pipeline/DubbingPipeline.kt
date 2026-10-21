@@ -102,6 +102,18 @@ class DubbingPipeline {
     fun importNllb(context: Context, treeUri: Uri, onProgress: (String) -> Unit): Int =
         ModelImporter.importNllbTree(context, treeUri, ensure(context), onProgress)
 
+    /** Ovozni tinglab ko'rish uchun TTS modelini yuklaydi (ViewModel keshlaydi). */
+    fun loadPreviewSynth(context: Context, config: AppConfig): VitsSynthesizer {
+        val dir = ensure(context)
+        if (!VitsSynthesizer.isReady(dir)) {
+            throw IllegalStateException("VITS modeli yo'q. Sozlamalarda vits_uzbek.onnx va uz_tts_base.json ni import qiling.")
+        }
+        return VitsSynthesizer.load(
+            dir, TextNormalizer.fromAssets(context.applicationContext),
+            threads = config.threads
+        )
+    }
+
     fun autoImport(context: Context, onProgress: (String) -> Unit): uz.dublaj.util.StorageScanner.ImportReport =
         uz.dublaj.util.StorageScanner.importAll(context, ensure(context), onProgress)
 
@@ -363,14 +375,23 @@ class DubbingPipeline {
         val clips = ArrayList<SegmentPlacer.Clip>()
 
         progress(0.02f, "TTS modeli yuklanmoqda…")
-        val synth = VitsSynthesizer.load(dir, norm, threads = config.threads)
+        val synth = VitsSynthesizer.load(
+            dir, norm,
+            noiseScale = config.voiceNoise,
+            noiseScaleW = config.voiceNoiseW,
+            minLengthScale = config.fitScale,
+            pauseS = config.voicePause,
+            threads = config.threads,
+            baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f)
+        )
         try {
             active.forEachIndexed { i, u ->
                 progress(0.05f + 0.55f * i / active.size, "TTS ${i + 1}/${active.size}")
                 val next = active.getOrNull(i + 1)?.start
                 val slot = (next ?: duration) - u.start
                 val seg = synth.synthesize(u.uzText, slot.coerceAtLeast(0.3))
-                val pcm = StreamResampler.resample(seg.pcm, seg.sampleRate, OUT_SR)
+                val resampled = StreamResampler.resample(seg.pcm, seg.sampleRate, OUT_SR)
+                val pcm = if (config.levelClips) uz.dublaj.util.AudioLevel.level(resampled) else resampled
                 placer.place(u.id, u.start, next, pcm)?.let { clips.add(it) }
             }
         } finally {
@@ -388,7 +409,7 @@ class DubbingPipeline {
         val outFile = File(dir.output, "dublaj_${System.currentTimeMillis()}.mp4")
         val totalSamples = (duration * OUT_SR).toLong()
         try {
-            DubMixer(OUT_SR, WavFile(dir.mixWav), clips, config.originalVolume, config.uzbekVolume).use { mixer ->
+            DubMixer(OUT_SR, WavFile(dir.mixWav), clips, config.originalVolume, config.uzbekVolume, config.duckAmount).use { mixer ->
                 VideoMuxer.mux(video, outFile, OUT_SR, totalSamples, mixer) { p ->
                     progress(0.72f + 0.27f * p, "Video yig'ilmoqda…")
                 }

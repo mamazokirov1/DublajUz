@@ -20,7 +20,7 @@ data class TranslationUnit(
 )
 
 data class AppConfig(
-    val originalVolume: Float = 0.12f,
+    val originalVolume: Float = 0.25f,
     val uzbekVolume: Float = 1.0f,
     val maxAtempo: Float = 1.3f,
     val whisperModel: String = "base",
@@ -28,8 +28,34 @@ data class AppConfig(
     val marginS: Float = 0.1f,
     val gapS: Float = 0.08f,
     /** "auto" yoki Whisper til kodi (en, ru, tr, ...) */
-    val sourceLang: String = "auto"
+    val sourceLang: String = "auto",
+    // ---- ovoz sifati (VITS)
+    /** Intonatsiya o'zgaruvchanligi (noise_scale). Yuqori = jonliroq, lekin beqarorroq. */
+    val voiceNoise: Float = 0.667f,
+    /** Ritm/davomiylik o'zgaruvchanligi (noise_scale_w). */
+    val voiceNoiseW: Float = 0.4f,
+    /** Nutq tezligi: 1.0 = oddiy, >1 tezroq (length_scale = 1 / voiceSpeed). */
+    val voiceSpeed: Float = 1.0f,
+    /** Gap ichidagi bo'laklar orasidagi pauza (soniya). */
+    val voicePause: Float = 0.25f,
+    /** Gap vaqtga sig'masa sintez ichida eng kam length_scale (0.8 = 1.25× tezlashish). */
+    val fitScale: Float = 0.8f,
+    // ---- aralashtirish
+    /** Dublaj gapirganda asl ovoz darajasi (1.0 = pasaytirilmaydi). */
+    val duckAmount: Float = 0.4f,
+    /** Har bir klip balandligini tenglash. */
+    val levelClips: Boolean = true
 )
+
+enum class VoicePreset(val label: String) { STANDARD("Standart"), NATURAL("Tabiiy"), CLEAR("Aniq"), FAST("Tez") }
+
+/** Boshlang'ich nuqtalar — quloq bilan sozlang. */
+fun AppConfig.applyPreset(p: VoicePreset): AppConfig = when (p) {
+    VoicePreset.STANDARD -> copy(voiceNoise = 0.667f, voiceNoiseW = 0.4f, voiceSpeed = 1.0f, voicePause = 0.25f, fitScale = 0.8f, maxAtempo = 1.3f)
+    VoicePreset.NATURAL -> copy(voiceNoise = 0.75f, voiceNoiseW = 0.6f, voiceSpeed = 0.95f, voicePause = 0.35f, fitScale = 0.85f, maxAtempo = 1.2f)
+    VoicePreset.CLEAR -> copy(voiceNoise = 0.5f, voiceNoiseW = 0.3f, voiceSpeed = 0.9f, voicePause = 0.3f, fitScale = 0.9f, maxAtempo = 1.15f)
+    VoicePreset.FAST -> copy(voiceNoise = 0.667f, voiceNoiseW = 0.4f, voiceSpeed = 1.1f, voicePause = 0.15f, fitScale = 0.75f, maxAtempo = 1.4f)
+}
 
 data class ModelsInfo(
     val whisper: Boolean = false,
