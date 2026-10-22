@@ -49,6 +49,10 @@ class TextNormalizer(
         )
         private val THOUSANDS_COMMA = Regex("""(?<![\d,])\d{1,3}(?:,\d{3})+(?![\d,])""")
         private val THOUSANDS_SPACE = Regex("""(?<![\d])\d{1,3}(?:[ \u00A0]\d{3})+(?![\d])""")
+        // Eng ko'p uchraydigan o'zbekcha qo'shimchalar (1–3 ta zanjir, ixtiyoriy apostrof/defis bilan)
+        private const val SUFFIX =
+            "(?:['’‘ʻʼ`-]?(?:lari|lar|ning|dagi|niki|gacha|dan|ni|ga|ka|qa|da|dek|day|cha|siz|lik|li|chi|imiz|ingiz|im|ing|si|i|ki)){1,3}"
+        private val SUFFIX_FULL = Regex(SUFFIX)
         private val CYR_VOWELS = "аеёиоуыэюяъь"
         private val APOSTROPHES = "'’ʻʼ‘`"
         private val CYR = mapOf(
@@ -154,16 +158,23 @@ class TextNormalizer(
             ordinal(m.groupValues[1].toLong())
         }
         // oddiy butun / kasr
-        t = t.replace(Regex("""\b(\d+)([.,](\d+))?\b""")) { m ->
+        // Harfga yopishgan raqamlar ham (5G, 10GB, mp3): aks holda TTS raqamni jimgina tashlab yuboradi.
+        val src = t
+        t = t.replace(Regex("""(?<!\d)(\d+)([.,](\d+))?(?!\d)""")) { m ->
             val whole = m.groupValues[1].toLongOrNull() ?: return@replace m.value
             val frac = m.groupValues[3]
-            if (frac.isNotEmpty()) {
+            val words = if (frac.isNotEmpty()) {
                 val wholeW = numberToWords(whole)
                 val fracW = frac.map { ONES[it - '0'] }.joinToString(" ")
                 "$wholeW butun $fracW"
             } else {
                 numberToWords(whole)
             }
+            val before = src.getOrNull(m.range.first - 1)
+            val after = src.getOrNull(m.range.last + 1)
+            val pre = if (before != null && before.isLetter()) " " else ""
+            val post = if (after != null && after.isLetter()) " " else ""
+            pre + words + post
         }
         return t
     }
@@ -198,6 +209,10 @@ class TextNormalizer(
     // ---------- lug'at ----------
     // Barcha kalitlar BITTA regex'da, uzunlari birinchi: "5g sa" -> "5G" dan oldin,
     // "Massive MIMO" -> "MIMO" dan oldin. Almashtirilgan matn qayta almashtirilmaydi.
+    // Katta harfli/aralash kalitga o'zbekcha qo'shimcha yopishishi mumkin: AQSHda, BMTning, GPS'dan.
+    // (Kichik harfli kalitlarga qo'shimcha qo'shilmaydi: "bun" -> "buni" xato almashmasin.)
+    private val sensitiveByLen: List<String> by lazy { caseSensitive.keys.sortedByDescending { it.length } }
+
     private val lexPattern: Regex? by lazy {
         val all = caseSensitive.keys.map { it to false } + caseInsensitive.keys.map { it to true }
         if (all.isEmpty()) {
@@ -206,7 +221,11 @@ class TextNormalizer(
             val body = all.sortedByDescending { it.first.length }   // barqaror: teng uzunlikda aniq-registr oldin
                 .joinToString("|") { (k, ci) ->
                     val q = Pattern.quote(k)
-                    if (ci) "(?i:$q)" else q
+                    when {
+                        ci -> "(?i:$q)"
+                        k.last().isLetterOrDigit() -> "$q(?:$SUFFIX)?"
+                        else -> q
+                    }
                 }
             Regex("(?<![\\p{L}\\p{N}])(?:$body)(?![\\p{L}\\p{N}])")
         }
@@ -215,10 +234,26 @@ class TextNormalizer(
     private fun applyLexicon(text: String): String {
         val re = lexPattern ?: return text
         return re.replace(text) { m ->
-            caseSensitive[m.value]
-                ?: caseInsensitive[m.value.lowercase(Locale.ROOT)]
-                ?: m.value
+            val v = m.value
+            caseSensitive[v]
+                ?: caseInsensitive[v.lowercase(Locale.ROOT)]
+                ?: withSuffix(v)
+                ?: v
         }
+    }
+
+    /** "BMTning" -> "be em te" + "ning". Mos kalit topilmasa null. */
+    private fun withSuffix(v: String): String? {
+        for (k in sensitiveByLen) {
+            if (v.length > k.length && v.startsWith(k)) {
+                val rest = v.substring(k.length)
+                if (SUFFIX_FULL.matches(rest)) {
+                    val clean = rest.filter { it !in APOSTROPHES && it != '-' }
+                    return caseSensitive[k]!! + clean
+                }
+            }
+        }
+        return null
     }
 
     // ---------- qisqartmalar ----------

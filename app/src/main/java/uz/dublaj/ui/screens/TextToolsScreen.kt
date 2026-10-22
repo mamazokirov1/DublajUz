@@ -157,6 +157,7 @@ fun TextToolsScreen(vm: PipelineViewModel, onBack: () -> Unit) {
                                 )
                             }
                         } else {
+                            var showRead by remember { mutableStateOf(false) }
                             OutlinedTextField(
                                 value = typed,
                                 onValueChange = { typed = it },
@@ -184,6 +185,28 @@ fun TextToolsScreen(vm: PipelineViewModel, onBack: () -> Unit) {
                                     },
                                     modifier = Modifier.height(52.dp)
                                 ) { Icon(Icons.Default.ContentPaste, contentDescription = "Qo'yish") }
+                            }
+                            TextButton(
+                                onClick = { showRead = !showRead },
+                                enabled = typed.isNotBlank()
+                            ) { Text(if (showRead) "O'qilishini yashirish" else "Qanday o'qilishini ko'rish") }
+                            if (showRead && typed.isNotBlank()) {
+                                // Ovozga AYNAN shu matn ketadi (raqam, qisqartma, lug'at almashtirilgandan keyin)
+                                val readText = remember(typed) {
+                                    uz.dublaj.text.TextNormalizer.fromAssets(context).normalize(typed)
+                                }
+                                Card(
+                                    shape = MaterialTheme.shapes.large,
+                                    colors = CardDefaults.cardColors(containerColor = cs.surfaceVariant)
+                                ) {
+                                    SelectionContainer {
+                                        Text(
+                                            readText,
+                                            modifier = Modifier.padding(12.dp),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
                             }
                             if (!models.vits) {
                                 Text(
