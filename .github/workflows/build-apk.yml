@@ -90,11 +90,13 @@ jobs:
 
       # Har bir push'dan keyin yangi reliz: ilova ichidagi "yangilanish tekshiruvi" shuni o'qiydi
       - name: Prepare APK for release
-        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-        run: cp app/build/outputs/apk/debug/*.apk DublajUz.apk
+        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          ls -la app/build/outputs/apk/debug/
+          cp app/build/outputs/apk/debug/*.apk DublajUz.apk
 
       - name: Publish build release
-        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
@@ -103,3 +105,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           make_latest: true
           files: DublajUz.apk
+          fail_on_unmatched_files: true
