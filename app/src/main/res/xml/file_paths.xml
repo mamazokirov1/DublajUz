@@ -4,4 +4,6 @@
     <external-files-path name="dubbed_output" path="dublaj/output/" />
     <!-- Muammo hisobotlari (matn) -->
     <cache-path name="reports" path="reports/" />
+    <!-- Yuklab olingan yangilanish APK -->
+    <cache-path name="updates" path="updates/" />
 </paths>

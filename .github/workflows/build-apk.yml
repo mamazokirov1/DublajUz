@@ -42,7 +42,7 @@ jobs:
           gradle-version: "8.9"
 
       - name: Build Debug APK
-        run: gradle assembleDebug -PbuildNumber=${{ github.run_number }} --stacktrace
+        run: gradle assembleDebug -PbuildNumber=${{ github.run_number }} -PgithubRepo=${{ github.repository }} --stacktrace
 
       # Kvota to'lsa ham build yiqilmasin (APK baribir Releases'ga yuklanadi)
       - name: Upload Debug APK
@@ -68,7 +68,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle assembleRelease -PbuildNumber=${{ github.run_number }} --stacktrace
+        run: gradle assembleRelease -PbuildNumber=${{ github.run_number }} -PgithubRepo=${{ github.repository }} --stacktrace
 
       - name: Upload Release APK
         continue-on-error: true

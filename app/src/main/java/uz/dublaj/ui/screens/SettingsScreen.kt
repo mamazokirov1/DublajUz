@@ -43,6 +43,8 @@ fun SettingsScreen(
     val status by vm.modelStatus.collectAsState()
     val preview by vm.previewState.collectAsState()
     val updateMessage by vm.updateMessage.collectAsState()
+    val availableUpdate by vm.update.collectAsState()
+    val updateProgress by vm.updateProgress.collectAsState()
     val busy by vm.busy.collectAsState()
     val cancelling by vm.cancelling.collectAsState()
     val workVersion by vm.workVersion.collectAsState()
@@ -491,6 +493,21 @@ fun SettingsScreen(
                     Text("Yangilanishni tekshirish")
                 }
                 updateMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.primary) }
+                availableUpdate?.let { u ->
+                    Button(
+                        onClick = { vm.downloadUpdate(context) },
+                        enabled = updateProgress == null,
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Icon(Icons.Default.Download, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Yuklab olish va o'rnatish (${u.versionName})")
+                    }
+                }
+                updateProgress?.let { p ->
+                    LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                    Text("${(p * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                }
                 Text(
                     "Yangi versiya chiqsa, ilova ochilganda kuniga bir marta o'zi xabar beradi.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant

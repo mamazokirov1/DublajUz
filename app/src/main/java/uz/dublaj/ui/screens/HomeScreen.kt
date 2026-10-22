@@ -65,6 +65,7 @@ fun HomeScreen(
     val host = remember { SnackbarHostState() }
     CollectUiEvents(vm, host)
     val update by vm.update.collectAsState()
+    val updateProgress by vm.updateProgress.collectAsState()
     val state by vm.state.collectAsState()
     val videoUri by vm.videoUri.collectAsState()
     val hasTranscript by vm.hasTranscript.collectAsState()
@@ -340,17 +341,20 @@ fun HomeScreen(
                     Text(u.versionName, style = MaterialTheme.typography.titleMedium)
                     if (u.notes.isNotBlank()) Text(u.notes.take(400), style = MaterialTheme.typography.bodySmall)
                     Text(
-                        "Yuklab olgach, o'rnatishda \"Yangilash\" ni bosing. Modellar va tarix saqlanadi.",
+                        "Ilova o'zi yuklab oladi. O'rnatishda \"Yangilash\" ni bosing — modellar va tarix saqlanadi.",
                         style = MaterialTheme.typography.bodySmall
                     )
+                    updateProgress?.let { p ->
+                        LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                        Text("${(p * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.url))) }
-                    catch (e: Exception) { Toast.makeText(context, "Brauzer topilmadi", Toast.LENGTH_SHORT).show() }
-                    vm.dismissUpdate(context, false)
-                }) { Text("Yuklab olish") }
+                TextButton(
+                    enabled = updateProgress == null,
+                    onClick = { vm.downloadUpdate(context) }
+                ) { Text(if (updateProgress != null) "Yuklanmoqda…" else "Yuklab olish va o'rnatish") }
             },
             dismissButton = {
                 Row {

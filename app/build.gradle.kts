@@ -16,6 +16,10 @@ android {
         val buildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 4
         versionCode = buildNumber
         versionName = "0.4.$buildNumber"
+        // CI: -PgithubRepo=<owner/repo> — yangilanish tekshiruvi aynan shu repodan reliz qidiradi
+        val githubRepo = (project.findProperty("githubRepo") as String?)?.takeIf { it.isNotBlank() }
+            ?: "mamazokirov1/DublajUz"
+        buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

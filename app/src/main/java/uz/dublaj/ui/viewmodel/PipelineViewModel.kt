@@ -556,6 +556,40 @@ class PipelineViewModel : ViewModel() {
         }
     }
 
+    private val _updateProgress = MutableStateFlow<Float?>(null)
+    /** null = yuklanmayapti; 0..1 = yuklash jarayoni. */
+    val updateProgress: StateFlow<Float?> = _updateProgress.asStateFlow()
+
+    /** Yangilanish APK'ni ilova ichida yuklaydi va o'rnatuvchini ochadi. */
+    fun downloadUpdate(context: Context) {
+        val app = context.applicationContext
+        val u = _update.value ?: return
+        if (_updateProgress.value != null) return
+        viewModelScope.launch {
+            _updateProgress.value = 0f
+            _updateMessage.value = "Yangilanish yuklanmoqda…"
+            try {
+                val apk = withContext(Dispatchers.IO) {
+                    UpdateChecker.download(app, u) { p -> _updateProgress.value = p }
+                }
+                _updateProgress.value = null
+                val started = UpdateChecker.install(app, apk)
+                _updateMessage.value = if (started) {
+                    "O'rnatish oynasi ochildi: \"Yangilash\" ni bosing"
+                } else {
+                    "\"Noma'lum manbalar\" ruxsatini yoqing, so'ng qayta \"Yuklab olish\" ni bosing"
+                }
+            } catch (e: CancellationException) {
+                _updateProgress.value = null
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Yangilanishni yuklash xatosi")
+                _updateProgress.value = null
+                _updateMessage.value = "Yuklab bo'lmadi: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
     fun dismissUpdate(context: Context, skipThis: Boolean) {
         _update.value?.let { if (skipThis) UpdateChecker.skip(context.applicationContext, it.build) }
         _update.value = null
