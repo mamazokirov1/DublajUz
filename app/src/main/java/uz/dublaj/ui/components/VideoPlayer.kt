@@ -2,11 +2,9 @@ package uz.dublaj.ui.components
 
 import android.net.Uri
 import android.widget.VideoView
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -106,12 +104,18 @@ private fun PlayerBody(uri: Uri, modifier: Modifier, autoPlay: Boolean) {
                 Modifier.fillMaxSize().clickable(enabled = ready) { playing = !playing },
                 contentAlignment = Alignment.Center
             ) {
-                AnimatedVisibility(
-                    visible = ready && !playing,
-                    enter = fadeIn() + scaleIn(),
-                    exit = fadeOut() + scaleOut()
-                ) {
-                    Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.55f)) {
+                val iconAlpha by animateFloatAsState(
+                    if (ready && !playing) 1f else 0f, animationSpec = tween(220), label = "playIcon"
+                )
+                if (iconAlpha > 0.01f) {
+                    Surface(
+                        shape = CircleShape, color = Color.Black.copy(alpha = 0.55f),
+                        modifier = Modifier.graphicsLayer {
+                            alpha = iconAlpha
+                            scaleX = 0.8f + 0.2f * iconAlpha
+                            scaleY = 0.8f + 0.2f * iconAlpha
+                        }
+                    ) {
                         Icon(
                             Icons.Default.PlayArrow, contentDescription = "Ijro etish", tint = Color.White,
                             modifier = Modifier.padding(12.dp).size(44.dp)
