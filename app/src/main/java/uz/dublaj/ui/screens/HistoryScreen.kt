@@ -1,5 +1,7 @@
 package uz.dublaj.ui.screens
 
+import java.io.File
+
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -32,7 +34,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(onBack: () -> Unit) {
+fun HistoryScreen(onBack: () -> Unit, onPlay: (File) -> Unit = {}) {
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     var entries by remember { mutableStateOf<List<HistoryEntry>?>(null) }
@@ -111,7 +113,8 @@ fun HistoryScreen(onBack: () -> Unit) {
                     HistoryItem(
                         entry,
                         onDelete = { toDelete = entry },
-                        onChanged = { refresh++ }
+                        onChanged = { refresh++ },
+                        onPlay = onPlay
                     )
                 }
             }
@@ -154,7 +157,7 @@ private fun dateOf(ms: Long): String =
     SimpleDateFormat("dd.MM.yyyy  HH:mm", Locale.getDefault()).format(Date(ms))
 
 @Composable
-private fun HistoryItem(entry: HistoryEntry, onDelete: () -> Unit, onChanged: () -> Unit) {
+private fun HistoryItem(entry: HistoryEntry, onDelete: () -> Unit, onChanged: () -> Unit, onPlay: (File) -> Unit) {
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
@@ -198,10 +201,9 @@ private fun HistoryItem(entry: HistoryEntry, onDelete: () -> Unit, onChanged: ()
                         style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                     )
                 }
-                FilledTonalIconButton(onClick = {
-                    try { context.startActivity(OutputUtils.viewIntent(context, file)) }
-                    catch (e: Exception) { toast("Video ochuvchi ilova topilmadi") }
-                }) { Icon(Icons.Default.PlayArrow, contentDescription = "Ko'rish") }
+                FilledTonalIconButton(onClick = { onPlay(file) }) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Ko'rish")
+                }
                 IconButton(onClick = { context.startActivity(OutputUtils.shareIntent(context, file)) }) {
                     Icon(Icons.Default.Share, contentDescription = "Ulashish")
                 }

@@ -100,6 +100,32 @@ class PipelineService : Service() {
             }
         }
 
+        /** Ish tugaganda (ilova fonda bo'lsa ham) ko'rinadigan oddiy bildirishnoma. */
+        fun notifyDone(context: Context, title: String, text: String) {
+            try {
+                val nm = context.getSystemService(NotificationManager::class.java) ?: return
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel("dublaj_done") == null) {
+                    nm.createNotificationChannel(
+                        NotificationChannel("dublaj_done", "Tayyor bo'lgan ishlar", NotificationManager.IMPORTANCE_DEFAULT)
+                    )
+                }
+                val open = PendingIntent.getActivity(
+                    context, 1, Intent(context, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                val n = NotificationCompat.Builder(context, "dublaj_done")
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setAutoCancel(true)
+                    .setContentIntent(open)
+                    .build()
+                nm.notify(1002, n)
+            } catch (e: Exception) {
+                Timber.w(e, "notifyDone")
+            }
+        }
+
         fun stop(context: Context) {
             try {
                 context.stopService(Intent(context, PipelineService::class.java))

@@ -5,6 +5,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import org.json.JSONObject
 import timber.log.Timber
+import uz.dublaj.pipeline.PitchShift
 import uz.dublaj.text.TextNormalizer
 import uz.dublaj.util.WorkDir
 import java.io.File
@@ -40,8 +41,12 @@ class VitsSynthesizer(
     /** length_scale boshlang'ich qiymati (1 / nutq tezligi). */
     @Volatile private var baseScale = 1.0f
 
+    /** Ovoz tembri (yarim ton). */
+    @Volatile var pitchSemitones = 0f
+
     /** Modelni qayta yuklamasdan sintez parametrlarini almashtirish (tinglab ko'rish uchun). */
-    fun configure(noise: Float, noiseW: Float, baseLength: Float, minLength: Float, pause: Float) {
+    fun configure(noise: Float, noiseW: Float, baseLength: Float, minLength: Float, pause: Float, pitch: Float = 0f) {
+        pitchSemitones = pitch
         noiseScale = noise
         noiseScaleW = noiseW
         baseScale = baseLength
@@ -75,7 +80,19 @@ class VitsSynthesizer(
                 audio = synthInternal(prepared, scale)
             }
         }
+        audio = fade(PitchShift.shift(audio, sampleRate, pitchSemitones))
         return SegmentAudio(audio, sampleRate, scale)
+    }
+
+    /** Boshi va oxiridagi "chiq" ovozini yo'qotish uchun 6 ms yumshoq kirish/chiqish. */
+    private fun fade(a: ShortArray): ShortArray {
+        val n = minOf(a.size / 2, (sampleRate * 0.006).toInt())
+        for (i in 0 until n) {
+            val g = i.toFloat() / n
+            a[i] = (a[i] * g).toInt().toShort()
+            a[a.size - 1 - i] = (a[a.size - 1 - i] * g).toInt().toShort()
+        }
+        return a
     }
 
     private fun synthInternal(text: String, lengthScale: Float): ShortArray {
@@ -163,7 +180,8 @@ class VitsSynthesizer(
             maxChars: Int = 220,
             pauseS: Float = 0.25f,
             threads: Int = 4,
-            baseLengthScale: Float = 1.0f
+            baseLengthScale: Float = 1.0f,
+            pitchSemitones: Float = 0f
         ): VitsSynthesizer {
             val (model, configFile) = modelFiles(work)
             if (!isReady(work)) {
@@ -193,7 +211,10 @@ class VitsSynthesizer(
             return VitsSynthesizer(
                 session, env, sr, addBlank, noiseScale, noiseScaleW,
                 minLengthScale, maxChars, pauseS, normalizer
-            ).also { it.baseScale = baseLengthScale }
+            ).also {
+                it.baseScale = baseLengthScale
+                it.pitchSemitones = pitchSemitones
+            }
         }
 
         private fun cleanUzbek(text: String): String {

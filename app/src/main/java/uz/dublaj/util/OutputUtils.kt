@@ -37,6 +37,31 @@ object OutputUtils {
         return uri
     }
 
+    /** Android 10+ da audio faylni Musiqa (Music/DublajUz) papkasiga saqlaydi. Eski versiyada null. */
+    fun saveAudioToMusic(context: Context, file: File, mime: String = "audio/wav"): Uri? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val values = ContentValues().apply {
+            put(MediaStore.Audio.Media.DISPLAY_NAME, file.name)
+            put(MediaStore.Audio.Media.MIME_TYPE, mime)
+            put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/DublajUz")
+            put(MediaStore.Audio.Media.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+        try {
+            resolver.openOutputStream(uri)?.use { out ->
+                file.inputStream().use { it.copyTo(out, 256 * 1024) }
+            } ?: throw IllegalStateException("Fayl ochilmadi")
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+        values.clear()
+        values.put(MediaStore.Audio.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return uri
+    }
+
     fun fileUri(context: Context, file: File): Uri =
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 

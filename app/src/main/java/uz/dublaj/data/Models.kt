@@ -38,6 +38,8 @@ data class AppConfig(
     val voiceSpeed: Float = 1.0f,
     /** Gap ichidagi bo'laklar orasidagi pauza (soniya). */
     val voicePause: Float = 0.25f,
+    /** Ovoz tembri, yarim ton (-4 chuqurroq … +4 ingichkaroq). 0 = o'zgarishsiz. */
+    val voicePitch: Float = 0f,
     /** Gap vaqtga sig'masa sintez ichida eng kam length_scale (0.8 = 1.25× tezlashish). */
     val fitScale: Float = 0.8f,
     // ---- aralashtirish

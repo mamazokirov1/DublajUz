@@ -56,8 +56,14 @@ fun HomeScreen(
     onEditTranslation: () -> Unit,
     onSettings: () -> Unit,
     onHistory: () -> Unit,
-    onQueue: () -> Unit
+    onQueue: () -> Unit,
+    onTextTools: () -> Unit = {},
+    onPlay: (Uri) -> Unit = {}
 ) {
+    val busy by vm.busy.collectAsState()
+    val cancelling by vm.cancelling.collectAsState()
+    val host = remember { SnackbarHostState() }
+    CollectUiEvents(vm, host)
     val update by vm.update.collectAsState()
     val state by vm.state.collectAsState()
     val videoUri by vm.videoUri.collectAsState()
@@ -120,6 +126,7 @@ fun HomeScreen(
 
     Scaffold(
         containerColor = cs.background,
+        snackbarHost = { SnackbarHost(host) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Column(
@@ -133,7 +140,8 @@ fun HomeScreen(
                 subtitle = "Offline o'zbekcha video dublyaj",
                 onSettings = onSettings,
                 onHistory = onHistory,
-                onQueue = onQueue
+                onQueue = onQueue,
+                onTools = onTextTools
             )
 
             Column(
@@ -145,7 +153,7 @@ fun HomeScreen(
                     SetupCard(
                         whisper = models.whisper, nllb = models.nllb, vits = models.vits,
                         status = modelStatus,
-                        busy = vm.isBusy,
+                        busy = busy,
                         onAuto = autoImport,
                         onManual = onSettings
                     )
@@ -153,8 +161,8 @@ fun HomeScreen(
 
                 // ---- jarayon holati
                 when (val s = state) {
-                    is PipelineState.Running -> RunningCard(s, onCancel = { vm.cancel() })
-                    is PipelineState.Success -> SuccessCard(File(s.outputPath))
+                    is PipelineState.Running -> RunningBanner(s, cancelling, onCancel = { vm.cancel() })
+                    is PipelineState.Success -> SuccessCard(File(s.outputPath), onPlay)
                     is PipelineState.Error -> ErrorCard(
                         message = s.message,
                         onClose = { vm.resetState() },
@@ -189,29 +197,12 @@ fun HomeScreen(
                             Text("MP4, MOV, WebM", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                         }
                     } else {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
-                                .clip(MaterialTheme.shapes.medium)
-                                .background(cs.surfaceVariant)
-                        ) {
-                            info?.thumb?.let {
-                                Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                            }
-                            info?.let {
-                                Surface(
-                                    color = Color.Black.copy(alpha = 0.6f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
-                                ) {
-                                    Text(
-                                        fmtDuration(it.durationMs), color = Color.White,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
+                        videoUri?.let { VideoPlayer(it, Modifier.fillMaxWidth()) }
+                        info?.let {
+                            Text(
+                                "Davomiyligi: ${fmtDuration(it.durationMs)}",
+                                style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                            )
                         }
                         OutlinedButton(onClick = { picker.launch("video/*") }, enabled = !running) {
                             Icon(Icons.Default.VideoFile, null)
@@ -223,19 +214,19 @@ fun HomeScreen(
 
                 // ---- 2. transkript + tarjima
                 StepCard(
-                    number = 2, title = "Transkript va tarjima",
+                    number = 2, title = "Matn va tarjima",
                     summary = if (hasTranslation) "${units.size} gap tarjima qilindi" else null,
                     state = stepState(2)
                 ) {
                     BigButton(
-                        text = "Transkript + tarjima",
+                        text = "Matnni ajratib tarjima qilish",
                         icon = Icons.Default.Translate,
                         enabled = videoUri != null && !running && models.whisper && models.nllb,
                         onClick = { vm.transcribeAndTranslate(context) }
                     )
                     if (!models.whisper || !models.nllb) {
                         Text(
-                            "Avval Whisper va NLLB modellarini tayyorlang.",
+                            "Avval Sozlamalardan matn aniqlash va tarjima komponentlarini yuklab oling.",
                             style = MaterialTheme.typography.bodySmall, color = cs.tertiary
                         )
                     }
@@ -243,7 +234,7 @@ fun HomeScreen(
                         TextButton(
                             onClick = { vm.transcribe(context) },
                             enabled = videoUri != null && !running && models.whisper
-                        ) { Text("Faqat transkript") }
+                        ) { Text("Faqat matn ajratish") }
                         TextButton(
                             onClick = { vm.translate(context) },
                             enabled = hasTranscript && !running && models.nllb
@@ -298,7 +289,7 @@ fun HomeScreen(
                     )
                     if (!models.vits) {
                         Text(
-                            "VITS (o'zbekcha ovoz) modeli kerak.",
+                            "O'zbekcha ovoz fayllari kerak (Sozlamalar bo'limida qo'shing).",
                             style = MaterialTheme.typography.bodySmall, color = cs.tertiary
                         )
                     }
@@ -307,6 +298,16 @@ fun HomeScreen(
                         Spacer(Modifier.width(6.dp))
                         Text("Ovoz sozlamalari va tinglab ko'rish")
                     }
+                }
+
+                FilledTonalButton(
+                    onClick = onTextTools,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Icon(Icons.Default.RecordVoiceOver, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Matn va ovoz: videodan matn / matndan audio")
                 }
 
                 // ---- so'nggi dublyajlar (ilova yopilsa ham saqlanadi)
@@ -419,16 +420,16 @@ private fun SetupCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.AutoAwesome, null, tint = cs.tertiary)
                 Spacer(Modifier.width(8.dp))
-                Text("Modellarni tayyorlang", style = MaterialTheme.typography.titleMedium)
+                Text("Dastlabki sozlash", style = MaterialTheme.typography.titleMedium)
             }
             Text(
-                "Ilova to'liq offline ishlaydi, buning uchun 3 ta model kerak.",
+                "Ilova internetsiz ishlaydi. Buning uchun 3 ta komponentni bir marta yuklab olish kerak: matn aniqlash, tarjima va o'zbekcha ovoz.",
                 style = MaterialTheme.typography.bodySmall
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill("Whisper", whisper)
-                StatusPill("NLLB", nllb)
-                StatusPill("VITS", vits)
+                StatusPill("Matn aniqlash", whisper)
+                StatusPill("Tarjima", nllb)
+                StatusPill("Ovoz", vits)
             }
             if (status != null) {
                 Text(status, style = MaterialTheme.typography.bodySmall, color = cs.primary)
@@ -447,43 +448,7 @@ private fun SetupCard(
 }
 
 @Composable
-private fun RunningCard(s: PipelineState.Running, onCancel: () -> Unit) {
-    val progress by animateFloatAsState(s.progress.coerceIn(0f, 1f), label = "progress")
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
-            .background(Brush.linearGradient(listOf(Color(0xFF4A2FD0), Color(0xFF7B4DFF), Color(0xFF00A6A6))))
-    ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${s.stage}…", color = Color.White,
-                    style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f)
-                )
-                Text(
-                    "${(progress * 100).toInt()}%", color = Color.White,
-                    style = MaterialTheme.typography.headlineMedium
-                )
-            }
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
-                color = Color.White,
-                trackColor = Color.White.copy(alpha = 0.25f)
-            )
-            Text(s.message, color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodySmall)
-            Text(
-                "Ilovani yopmang, u fonda ishlayveradi (bildirishnoma ko'rinadi).",
-                color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall
-            )
-            TextButton(onClick = onCancel) { Text("Bekor qilish", color = Color.White) }
-        }
-    }
-}
-
-@Composable
-private fun SuccessCard(file: File) {
+private fun SuccessCard(file: File, onPlay: (Uri) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
@@ -503,17 +468,15 @@ private fun SuccessCard(file: File) {
                     Text("Tarixda saqlandi ✓", style = MaterialTheme.typography.bodySmall, color = cs.onSecondaryContainer.copy(alpha = 0.8f))
                 }
             }
+            VideoPlayer(Uri.fromFile(file), Modifier.fillMaxWidth())
             Button(
-                onClick = {
-                    try { context.startActivity(OutputUtils.viewIntent(context, file)) }
-                    catch (e: Exception) { Toast.makeText(context, "Video ochuvchi ilova topilmadi", Toast.LENGTH_SHORT).show() }
-                },
+                onClick = { onPlay(Uri.fromFile(file)) },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = MaterialTheme.shapes.medium
             ) {
-                Icon(Icons.Default.PlayArrow, null)
+                Icon(Icons.Default.Fullscreen, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Ko'rish", style = MaterialTheme.typography.titleMedium)
+                Text("Butun ekranda ko'rish", style = MaterialTheme.typography.titleMedium)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(
@@ -578,11 +541,11 @@ private fun SuccessCard(file: File) {
 private fun hintFor(message: String): String? {
     val m = message.lowercase()
     return when {
-        "vits" in m -> "Sozlamalar → Modellar bo'limida VITS modelini va uz_tts_base.json ni import qiling."
-        "tokenizer" in m || "nllb" in m -> "Sozlamalar → Modellar bo'limida NLLB modelini qayta import qiling."
-        "joy" in m || "space" in m || "xotira" in m -> "Telefonda bo'sh joy yetarli emas. Sozlamalar → Xotira dan vaqtinchalik fayllarni tozalang."
+        "vits" in m || "ovoz komponenti" in m -> "Sozlamalar bo'limida o'zbekcha ovoz fayllarini (.onnx va .json) qo'shing."
+        "tokenizer" in m || "nllb" in m || "tarjima komponenti" in m -> "Sozlamalar bo'limida tarjima komponentini qaytadan yuklab oling."
+        "joy" in m || "space" in m || "xotira" in m -> "Telefonda bo'sh joy yetarli emas. Sozlamalar → Xotira bo'limida vaqtinchalik fayllarni tozalang."
         "kodek" in m || "codec" in m -> "Videoni H.264 (MP4) formatiga o'giring yoki boshqa video tanlang."
-        "whisper" in m -> "Sozlamalar → Modellar bo'limida Whisper modelini tekshiring."
+        "whisper" in m || "matn aniqlash" in m -> "Sozlamalar bo'limida matn aniqlash komponentini tekshiring."
         else -> null
     }
 }

@@ -15,7 +15,9 @@ import androidx.navigation.compose.rememberNavController
 import uz.dublaj.ui.screens.EditTranslationScreen
 import uz.dublaj.ui.screens.HistoryScreen
 import uz.dublaj.ui.screens.HomeScreen
+import uz.dublaj.ui.screens.PlayerScreen
 import uz.dublaj.ui.screens.QueueScreen
+import uz.dublaj.ui.screens.TextToolsScreen
 import uz.dublaj.ui.screens.SettingsScreen
 import uz.dublaj.ui.viewmodel.PipelineViewModel
 
@@ -25,6 +27,8 @@ object Routes {
     const val SETTINGS = "settings"
     const val HISTORY = "history"
     const val QUEUE = "queue"
+    const val PLAYER = "player"
+    const val TEXT = "text"
 }
 
 @Composable
@@ -54,7 +58,12 @@ fun DublajNavHost(incomingUri: Uri? = null, onIncomingConsumed: () -> Unit = {})
                 onEditTranslation = { navController.navigate(Routes.EDIT) },
                 onSettings = { navController.navigate(Routes.SETTINGS) },
                 onHistory = { navController.navigate(Routes.HISTORY) },
-                onQueue = { navController.navigate(Routes.QUEUE) }
+                onQueue = { navController.navigate(Routes.QUEUE) },
+                onTextTools = { navController.navigate(Routes.TEXT) },
+                onPlay = { uri ->
+                    vm.openPlayer(uri)
+                    navController.navigate(Routes.PLAYER)
+                }
             )
         }
         composable(Routes.EDIT) {
@@ -64,7 +73,19 @@ fun DublajNavHost(incomingUri: Uri? = null, onIncomingConsumed: () -> Unit = {})
             QueueScreen(vm = vm, onBack = { navController.popBackStack() })
         }
         composable(Routes.HISTORY) {
-            HistoryScreen(onBack = { navController.popBackStack() })
+            HistoryScreen(
+                onBack = { navController.popBackStack() },
+                onPlay = { f ->
+                    vm.openPlayer(Uri.fromFile(f))
+                    navController.navigate(Routes.PLAYER)
+                }
+            )
+        }
+        composable(Routes.PLAYER) {
+            PlayerScreen(vm = vm, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.TEXT) {
+            TextToolsScreen(vm = vm, onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(vm = vm, onBack = { navController.popBackStack() })

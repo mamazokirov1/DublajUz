@@ -22,6 +22,7 @@ object ConfigStore {
             voiceNoiseW = sp.getFloat("voiceNoiseW", d.voiceNoiseW),
             voiceSpeed = sp.getFloat("voiceSpeed", d.voiceSpeed),
             voicePause = sp.getFloat("voicePause", d.voicePause),
+            voicePitch = sp.getFloat("voicePitch", d.voicePitch),
             fitScale = sp.getFloat("fitScale", d.fitScale),
             duckAmount = sp.getFloat("duckAmount", d.duckAmount),
             levelClips = sp.getBoolean("levelClips", d.levelClips),
@@ -46,6 +47,7 @@ object ConfigStore {
             .putFloat("voiceNoiseW", c.voiceNoiseW)
             .putFloat("voiceSpeed", c.voiceSpeed)
             .putFloat("voicePause", c.voicePause)
+            .putFloat("voicePitch", c.voicePitch)
             .putFloat("fitScale", c.fitScale)
             .putFloat("duckAmount", c.duckAmount)
             .putBoolean("levelClips", c.levelClips)

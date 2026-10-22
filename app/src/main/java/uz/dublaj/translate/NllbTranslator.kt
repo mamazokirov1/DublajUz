@@ -220,8 +220,8 @@ class NllbTranslator private constructor(
             val miss = missingFiles(work)
             if (miss.isNotEmpty()) {
                 throw IllegalStateException(
-                    "NLLB fayllari yetishmaydi:\n${miss.joinToString("\n")}\n" +
-                        "Sozlamalar → NLLB modelini yuklang yoki papkadan import qiling."
+                    "Tarjima komponenti fayllari yetishmaydi:\n${miss.joinToString("\n")}\n" +
+                        "Sozlamalar bo'limida tarjima komponentini yuklab oling."
                 )
             }
 

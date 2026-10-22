@@ -2,6 +2,11 @@ package uz.dublaj.pipeline
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
@@ -37,6 +42,9 @@ class DubbingPipeline {
 
     companion object {
         private const val OUT_SR = 22050
+        /** Whisper o'z oqimida ishlaydi; bekor qilinganda natija tashlab yuboriladi, tugagach xotira bo'shatiladi. */
+        private val sttScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        @Volatile private var sttBusy = false
     }
 
     @Volatile private var cancelled = false
@@ -111,11 +119,11 @@ class DubbingPipeline {
     fun loadPreviewSynth(context: Context, config: AppConfig): VitsSynthesizer {
         val dir = ensure(context)
         if (!VitsSynthesizer.isReady(dir)) {
-            throw IllegalStateException("VITS modeli yo'q. Sozlamalarda vits_uzbek.onnx va uz_tts_base.json ni import qiling.")
+            throw IllegalStateException("O'zbekcha ovoz komponenti yo'q. Sozlamalarda ovoz fayllarini (.onnx va .json) qo'shing.")
         }
         return VitsSynthesizer.load(
             dir, TextNormalizer.fromAssets(context.applicationContext),
-            threads = config.threads
+            threads = config.threads, pitchSemitones = config.voicePitch
         )
     }
 
@@ -183,7 +191,7 @@ class DubbingPipeline {
         val wi = WhisperRecognizer.info(config.whisperModel)
         val modelFile = WhisperRecognizer.defaultModelFile(dir, wi.id)
         if (!ModelDownloader.isDownloaded(modelFile, wi.minBytes)) {
-            throw IllegalStateException("Whisper (${wi.id}) modeli yo'q. Sozlamalar → Whisper modelini yuklang.")
+            throw IllegalStateException("Matn aniqlash komponenti yo'q. Sozlamalar bo'limida uni yuklab oling.")
         }
 
         progress(0.02f, "Video nusxalanmoqda…")
@@ -200,16 +208,41 @@ class DubbingPipeline {
             progress(0.1f + 0.3f * p, "Audio ajratilmoqda…")
         }
 
-        val recognizer = WhisperRecognizer(context.applicationContext)
-        val result = try {
-            progress(0.45f, "Whisper modeli yuklanmoqda…")
-            recognizer.ensureModel(modelFile)
-            recognizer.transcribe(dir.extractedWav, config.sourceLang) { p, m ->
-                progress(0.5f + 0.45f * p, m)
-            }
-        } finally {
-            recognizer.release()          // NLLB uchun xotirani bo'shatamiz
+        // Oldingi (bekor qilingan) matn aniqlash hali tugamagan bo'lsa, xotira to'qnashmasligi uchun kutamiz
+        while (sttBusy) {
+            checkCancelled()
+            progress(0.42f, "Oldingi amal tugashi kutilmoqda…")
+            delay(500)
         }
+        val recognizer = WhisperRecognizer(context.applicationContext)
+        var detached = false
+        val result = try {
+            progress(0.45f, "Nutq tanish komponenti yuklanmoqda…")
+            recognizer.ensureModel(modelFile)
+            sttBusy = true
+            val job = sttScope.async {
+                try {
+                    recognizer.transcribe(dir.extractedWav, config.sourceLang) { p, m ->
+                        progress(0.5f + 0.45f * p, m)
+                    }
+                } finally {
+                    sttBusy = false
+                }
+            }
+            while (!job.isCompleted) {
+                if (cancelled) {
+                    // Native kod to'xtatilmaydi: UI darhol bo'shatiladi, model esa tugagach yopiladi
+                    detached = true
+                    job.invokeOnCompletion { recognizer.release() }
+                    throw UserCancelled()
+                }
+                delay(150)
+            }
+            job.await()
+        } finally {
+            if (!detached) recognizer.release()          // tarjima uchun xotirani bo'shatamiz
+        }
+        checkCancelled()
         val fixes = SttFixes.load(context, File(dir.root, "stt_fixes.json"))
         val units: List<TranscriptUnit> = SttFixes.apply(result.units, fixes)
         val lang: String = result.language
@@ -236,7 +269,7 @@ class DubbingPipeline {
 
     private fun loadTranscript(context: Context): List<TranscriptUnit> {
         val dir = ensure(context)
-        if (!dir.transcriptJson.isFile) throw IllegalStateException("Transkript yo'q — avval 'Transkript' ni bajaring")
+        if (!dir.transcriptJson.isFile) throw IllegalStateException("Matn hali ajratilmagan — avval \"Matn ajratish\" ni bajaring")
         val arr = JSONObject(dir.transcriptJson.readText()).getJSONArray("units")
         return (0 until arr.length()).map { i ->
             val u = arr.getJSONObject(i)
@@ -262,12 +295,12 @@ class DubbingPipeline {
         Timber.i("Gaplar: ${raw.size} segment → ${src.size} gap")
         if (!NllbTranslator.isReady(dir)) {
             throw IllegalStateException(
-                "NLLB modeli to'liq emas. Sozlamalar → NLLB ni yuklang yoki import qiling."
+                "Tarjima komponenti to'liq emas. Sozlamalar bo'limida uni qaytadan yuklab oling."
             )
         }
 
         val norm = TextNormalizer.fromAssets(context.applicationContext)
-        progress(0.02f, "NLLB modeli yuklanmoqda…")
+        progress(0.02f, "Tarjima komponenti yuklanmoqda…")
         val translator = NllbTranslator.load(dir, config.threads)
         val result = ArrayList<TranslationUnit>()
         var failed = 0
@@ -364,7 +397,7 @@ class DubbingPipeline {
         if (!dir.approvedFlag.isFile) throw IllegalStateException("Tarjima tasdiqlanmagan")
         if (!VitsSynthesizer.isReady(dir)) {
             throw IllegalStateException(
-                "VITS (TTS) modeli yo'q. Sozlamalar → VITS modelini (.onnx) va uz_tts_base.json ni import qiling."
+                "O'zbekcha ovoz komponenti yo'q. Sozlamalarda ovoz fayllarini (.onnx va .json) qo'shing."
             )
         }
         val video = localVideo?.takeIf { it.isFile }
@@ -389,7 +422,7 @@ class DubbingPipeline {
         )
         val clips = ArrayList<SegmentPlacer.Clip>()
 
-        progress(0.02f, "TTS modeli yuklanmoqda…")
+        progress(0.02f, "Ovoz komponenti yuklanmoqda…")
         val synth = VitsSynthesizer.load(
             dir, norm,
             noiseScale = config.voiceNoise,
@@ -397,11 +430,12 @@ class DubbingPipeline {
             minLengthScale = config.fitScale,
             pauseS = config.voicePause,
             threads = config.threads,
-            baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f)
+            baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f),
+            pitchSemitones = config.voicePitch
         )
         try {
             active.forEachIndexed { i, u ->
-                progress(0.05f + 0.55f * i / active.size, "TTS ${i + 1}/${active.size}")
+                progress(0.05f + 0.55f * i / active.size, "Ovozlashtirish ${i + 1}/${active.size}")
                 val next = active.getOrNull(i + 1)?.start
                 val slot = (next ?: duration) - u.start
                 val seg = synth.synthesize(u.uzText, slot.coerceAtLeast(0.3))
@@ -412,7 +446,7 @@ class DubbingPipeline {
         } finally {
             synth.close()
         }
-        if (clips.isEmpty()) throw IllegalStateException("TTS hech narsa sintez qilmadi")
+        if (clips.isEmpty()) throw IllegalStateException("Ovoz hosil bo'lmadi (matn bo'sh yoki o'qib bo'lmadi)")
 
         progress(0.62f, "Asl audio tayyorlanmoqda…")
         if (!dir.mixWav.isFile) {
@@ -443,5 +477,78 @@ class DubbingPipeline {
         }
         progress(1f, "Tayyor")
         return outFile
+    }
+
+    // ------------------------------------------------------------------ oddiy matn
+
+    /** Videodan ajratilgan asl matn: vaqtlarsiz, bitta uzun matn (gaplar birlashtirilgan). */
+    fun plainTranscript(context: Context): String {
+        val dir = ensure(context)
+        if (!dir.transcriptJson.isFile) return ""
+        return try {
+            SentenceMerger.merge(loadTranscript(context)).joinToString(" ") { it.text.trim() }.trim()
+        } catch (e: Exception) {
+            Timber.w(e, "plainTranscript")
+            ""
+        }
+    }
+
+    /** Ixtiyoriy o'zbekcha matnni ovozga aylantirib, WAV fayl qiladi (video vaqtlari yo'q). */
+    fun synthesizeText(
+        context: Context,
+        text: String,
+        config: AppConfig,
+        onProgress: (Float, String) -> Unit
+    ): File {
+        val progress = wrap(onProgress)
+        val dir = ensure(context)
+        if (!VitsSynthesizer.isReady(dir)) {
+            throw IllegalStateException("O'zbekcha ovoz komponenti yo'q. Sozlamalarda ovoz fayllarini (.onnx va .json) qo'shing.")
+        }
+        val pieces = text.split(Regex("\\n+"))
+            .flatMap { par -> if (par.isBlank()) emptyList() else VitsSynthesizer.splitText(par, 220) }
+            .filter { it.isNotBlank() }
+        if (pieces.isEmpty()) throw IllegalStateException("Matn bo'sh")
+        FileUtils.ensureSpace(dir.output, 50L * 1024 * 1024)
+
+        progress(0.02f, "Ovoz komponenti yuklanmoqda…")
+        val synth = VitsSynthesizer.load(
+            dir, TextNormalizer.fromAssets(context.applicationContext),
+            noiseScale = config.voiceNoise,
+            noiseScaleW = config.voiceNoiseW,
+            minLengthScale = config.fitScale,
+            pauseS = config.voicePause,
+            threads = config.threads,
+            baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f),
+            pitchSemitones = config.voicePitch
+        )
+        val out = File(dir.output, "ovoz_${System.currentTimeMillis()}.wav")
+        try {
+            var writer: uz.dublaj.util.WavWriter? = null
+            try {
+                pieces.forEachIndexed { i, piece ->
+                    progress(0.05f + 0.93f * i / pieces.size, "Ovozlashtirish ${i + 1}/${pieces.size}")
+                    val seg = synth.synthesize(piece, null)
+                    if (seg.pcm.isEmpty()) return@forEachIndexed
+                    val pcm = if (config.levelClips) uz.dublaj.util.AudioLevel.level(seg.pcm) else seg.pcm
+                    val w = writer ?: uz.dublaj.util.WavWriter(out, seg.sampleRate).also { writer = it }
+                    w.write(pcm)
+                    w.write(ShortArray((seg.sampleRate * config.voicePause.coerceAtLeast(0.15f)).toInt()))
+                }
+            } finally {
+                writer?.close()
+            }
+        } catch (e: Throwable) {
+            out.delete()
+            throw e
+        } finally {
+            synth.close()
+        }
+        if (!out.isFile || out.length() < 1000) {
+            out.delete()
+            throw IllegalStateException("Ovoz hosil bo'lmadi (matn o'qib bo'lmadi)")
+        }
+        progress(1f, "Tayyor")
+        return out
     }
 }

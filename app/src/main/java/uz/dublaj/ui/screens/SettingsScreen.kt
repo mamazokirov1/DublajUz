@@ -1,5 +1,9 @@
 package uz.dublaj.ui.screens
 
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import uz.dublaj.ui.components.CollectUiEvents
+
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -39,12 +43,17 @@ fun SettingsScreen(
     val status by vm.modelStatus.collectAsState()
     val preview by vm.previewState.collectAsState()
     val updateMessage by vm.updateMessage.collectAsState()
+    val busy by vm.busy.collectAsState()
+    val cancelling by vm.cancelling.collectAsState()
+    val workVersion by vm.workVersion.collectAsState()
+    val host = remember { SnackbarHostState() }
+    CollectUiEvents(vm, host)
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
     val expert = config.expertMode
 
     var usedMb by remember { mutableStateOf(0L) }
-    LaunchedEffect(status) {
+    LaunchedEffect(status, workVersion) {
         vm.refreshModels(context)
         usedMb = vm.usedBytes(context) / (1024 * 1024)
     }
@@ -68,6 +77,7 @@ fun SettingsScreen(
 
     Scaffold(
         containerColor = cs.background,
+        snackbarHost = { SnackbarHost(host) },
         topBar = {
             TopAppBar(
                 title = { Text("Sozlamalar") },
@@ -101,12 +111,12 @@ fun SettingsScreen(
                         FilterChip(
                             selected = expert,
                             onClick = { vm.setConfig(config.copy(expertMode = true)) },
-                            label = { Text("Mutaxassis") }
+                            label = { Text("Ilg'or") }
                         )
                     }
                     Text(
                         if (expert) "Hamma sozlamalar ko'rinadi."
-                        else "Faqat eng kerakli sozlamalar. Ko'proq nazorat uchun Mutaxassis rejimini yoqing.",
+                        else "Faqat eng kerakli sozlamalar. Ko'proq nazorat uchun Ilg'or rejimni yoqing.",
                         style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                     )
                 }
@@ -116,80 +126,90 @@ fun SettingsScreen(
             val allReady = models.whisper && models.nllb && models.vits
             SectionCard(
                 icon = Icons.Default.Storage,
-                title = "Modellar",
-                subtitle = if (allReady) "Hammasi tayyor ✓" else "Ba'zi modellar yetishmaydi",
+                title = "Yuklab olinadigan komponentlar",
+                subtitle = if (allReady) "Hammasi tayyor ✓" else "Ba'zi komponentlar yetishmaydi",
                 initiallyExpanded = !allReady
             ) {
+                Text(
+                    "Ilova internetsiz ishlashi uchun uchta komponent kerak. Ularni bir marta yuklab olasiz yoki telefondan qo'shasiz.",
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusPill("Whisper", models.whisper)
-                    StatusPill("NLLB", models.nllb)
-                    StatusPill("VITS", models.vits)
+                    StatusPill("Matn aniqlash", models.whisper)
+                    StatusPill("Tarjima", models.nllb)
+                    StatusPill("Ovoz", models.vits)
                 }
                 status?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = cs.primary)
                     if (!it.startsWith("Tayyor") && !it.startsWith("Xato") && !it.startsWith("Bekor")) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
-                        OutlinedButton(onClick = { vm.cancel() }) { Text("Bekor qilish") }
+                        OutlinedButton(onClick = { vm.cancel() }, enabled = !cancelling) {
+                            Text(if (cancelling) "Bekor qilinmoqda…" else "Bekor qilish")
+                        }
                     }
                 }
                 Button(
                     onClick = { startAutoImport() },
-                    enabled = !vm.isBusy,
+                    enabled = !busy,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = MaterialTheme.shapes.medium
                 ) {
                     Icon(Icons.Default.FolderOpen, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Download papkadan avtomatik import")
+                    Text("Yuklangan fayllarni avtomatik topish")
                 }
                 Text(
-                    "Download va boshqa papkalardan ggml-*.bin, nllb papkasi, vits_uzbek.onnx va uz_tts_base.json ni o'zi topib nusxalaydi. " +
-                        "Birinchi marta \"Barcha fayllarga kirish\" ruxsatini yoqing.",
+                    "Telefoningizdagi Yuklanmalar (Download) va boshqa papkalardan kerakli fayllarni o'zi topib qo'shadi. " +
+                        "Birinchi marta \"Barcha fayllarga kirish\" ruxsatini yoqish kerak bo'ladi.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
 
                 HorizontalDivider()
-                Text("Whisper (ovoz → matn)", style = MaterialTheme.typography.titleMedium)
+                Text("Nutqni matnga aylantirish", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Videodagi gapni eshitib, yozib oladi. \"Tez\" kichik va tez, \"Aniq\" katta va aniqroq (sekinroq).",
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     WhisperRecognizer.MODEL_OPTIONS.forEach { m ->
                         FilterChip(
                             selected = config.whisperModel == m.id,
                             onClick = { vm.setConfig(config.copy(whisperModel = m.id), context) },
-                            label = { Text("${m.id} ${m.sizeMb}MB") }
+                            label = { Text("${friendlyModelName(m.id)} • ${m.sizeMb} MB") }
                         )
                     }
                 }
                 Text(WhisperRecognizer.info(config.whisperModel).note, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.downloadWhisper(context) }, enabled = !vm.isBusy) { Text("Yuklash") }
-                    OutlinedButton(onClick = { whisperPicker.launch(arrayOf("*/*")) }, enabled = !vm.isBusy) { Text("Fayldan import") }
+                    Button(onClick = { vm.downloadWhisper(context) }, enabled = !busy) { Text("Yuklash") }
+                    OutlinedButton(onClick = { whisperPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Fayldan qo'shish") }
                 }
 
                 HorizontalDivider()
-                Text("NLLB (tarjima, ~1 GB)", style = MaterialTheme.typography.titleMedium)
+                Text("Tarjimon (~1 GB)", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Litsenziya: CC-BY-NC (faqat notijorat foydalanish).",
+                    "Matnni o'zbek tiliga o'giradi. Bir marta yuklab olinadi, keyin internetsiz ishlaydi. Fayl katta, shuning uchun Wi-Fi tavsiya etiladi.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.downloadNllb(context) }, enabled = !vm.isBusy) { Text("Yuklash") }
-                    OutlinedButton(onClick = { nllbPicker.launch(null) }, enabled = !vm.isBusy) { Text("Papkadan import") }
+                    Button(onClick = { vm.downloadNllb(context) }, enabled = !busy) { Text("Yuklash") }
+                    OutlinedButton(onClick = { nllbPicker.launch(null) }, enabled = !busy) { Text("Papkadan qo'shish") }
                 }
-                OutlinedButton(onClick = { nllbFilesPicker.launch(arrayOf("*/*")) }, enabled = !vm.isBusy) {
-                    Text("Fayllarni tanlab import (5 ta)")
+                OutlinedButton(onClick = { nllbFilesPicker.launch(arrayOf("*/*")) }, enabled = !busy) {
+                    Text("Fayllarni tanlab qo'shish (5 ta)")
                 }
                 Text(
-                    "config.json, tokenizer.json, tokenizer_config.json, encoder_model_quantized.onnx, " +
-                        "decoder_model_merged_quantized.onnx: hammasini birdan belgilang.",
+                    "Fayllarni o'zingiz yuklagan bo'lsangiz, 5 tasini birdan belgilang: config.json, tokenizer.json, " +
+                        "tokenizer_config.json va ikkita .onnx fayl (encoder, decoder).",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
 
                 HorizontalDivider()
-                Text("VITS (o'zbekcha ovoz)", style = MaterialTheme.typography.titleMedium)
-                Text("vits_uzbek.onnx va uz_tts_base.json fayllarini tanlang.", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Text("O'zbekcha ovoz", style = MaterialTheme.typography.titleMedium)
+                Text("Tarjimani o'zbekcha o'qiydigan ikki fayl: ovoz fayli (.onnx) va uning sozlama fayli (.json).", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { vitsPicker.launch(arrayOf("*/*")) }, enabled = !vm.isBusy) { Text(".onnx") }
-                    OutlinedButton(onClick = { vitsCfgPicker.launch(arrayOf("*/*")) }, enabled = !vm.isBusy) { Text(".json config") }
+                    OutlinedButton(onClick = { vitsPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Ovoz fayli (.onnx)") }
+                    OutlinedButton(onClick = { vitsCfgPicker.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Sozlama fayli (.json)") }
                 }
             }
 
@@ -219,6 +239,12 @@ fun SettingsScreen(
                     "1.0 oddiy tezlik. Past qiymat sekinroq va aniqroq, baland qiymat tezroq gapiradi.",
                     config.voiceSpeed, 0.7f..1.3f
                 ) { vm.setConfig(config.copy(voiceSpeed = it)) }
+
+                HelpSlider(
+                    "Ovoz tembri", if (config.voicePitch == 0f) "Asl" else "%+.1f".format(config.voicePitch),
+                    "Manfiy qiymat ovozni qalinroq (erkakcha), musbat qiymat ingichkaroq qiladi. 0 — o'zgarishsiz. Gapirish tezligiga ta'sir qilmaydi.",
+                    config.voicePitch, -4f..4f, steps = 15
+                ) { vm.setConfig(config.copy(voicePitch = it)) }
 
                 if (expert) {
                     HelpSlider(
@@ -256,7 +282,7 @@ fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { vm.previewVoice(context, sample) },
-                        enabled = models.vits && !vm.isBusy,
+                        enabled = models.vits && !busy,
                         shape = MaterialTheme.shapes.medium
                     ) {
                         Icon(Icons.Default.PlayArrow, null)
@@ -270,7 +296,7 @@ fun SettingsScreen(
                     }
                 }
                 if (!models.vits) {
-                    Text("Tinglash uchun avval VITS modelini import qiling.", style = MaterialTheme.typography.bodySmall, color = cs.tertiary)
+                    Text("Tinglash uchun avval o'zbekcha ovoz fayllarini qo'shing.", style = MaterialTheme.typography.bodySmall, color = cs.tertiary)
                 }
                 preview?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.primary) }
                 Text(
@@ -316,7 +342,7 @@ fun SettingsScreen(
                     ) { vm.setConfig(config.copy(levelClips = it)) }
 
                     HelpSlider(
-                        "CPU oqimlari", "${config.threads}",
+                        "Ishlash tezligi (protsessor yadrolari)", "${config.threads}",
                         "Ko'p oqim tezroq ishlaydi, lekin telefon qizishi va xotira sarfi oshishi mumkin.",
                         config.threads.toFloat(), 1f..8f, steps = 6
                     ) { vm.setConfig(config.copy(threads = it.roundToInt())) }
@@ -391,8 +417,8 @@ fun SettingsScreen(
                 subtitle = if (BugReport.hasCrash(context)) "⚠ Oldingi safar ilova to'xtagan" else "Hisobot yaratib yuboring"
             ) {
                 Text(
-                    "Hisobot faqat ilova adminiga (${BugReport.ADMIN_EMAIL}) Gmail orqali yuboriladi. " +
-                        "Unga faqat texnik ma'lumot kiradi: qurilma, sozlamalar, oxirgi loglar. Video va matn kirmaydi.",
+                    "Ilova to'xtab qolsa yoki taklifingiz bo'lsa, bizga yuboring. Hisobotga faqat telefon va sozlamalar haqida " +
+                        "qisqa ma'lumot kiradi. Videolaringiz va matnlaringiz yuborilmaydi.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
                 OutlinedTextField(
@@ -411,19 +437,20 @@ fun SettingsScreen(
                 ) {
                     Icon(Icons.Default.Send, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Adminga yuborish")
+                    Text("Yuborish")
                 }
                 Text(
-                    "Gmail ochiladi, manzil va hisobot fayli tayyor turadi, faqat \"Yuborish\" ni bosasiz.",
+                    "Pochta ilovasi ochiladi, hammasi tayyor turadi — faqat \"Yuborish\" ni bosasiz.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
             }
 
             // ---------------- xotira
+            val shownMb by animateIntAsState(usedMb.toInt(), animationSpec = tween(700), label = "usedMb")
             SectionCard(
                 icon = Icons.Default.DeleteSweep,
                 title = "Xotira",
-                subtitle = "Vaqtinchalik fayllar: $usedMb MB"
+                subtitle = "Vaqtinchalik fayllar: $shownMb MB"
             ) {
                 Text(
                     "Video nusxalari va oraliq audio shu yerda turadi. Modellar va tayyor videolar o'chirilmaydi.",
@@ -437,9 +464,19 @@ fun SettingsScreen(
                 ) { vm.setConfig(config.copy(autoSaveGallery = it)) }
                 OutlinedButton(
                     onClick = { vm.clearWork(context) },
-                    enabled = !vm.isBusy,
+                    enabled = !busy,
                     shape = MaterialTheme.shapes.medium
-                ) { Text("Vaqtinchalik fayllarni tozalash") }
+                ) {
+                    Icon(Icons.Default.DeleteSweep, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Vaqtinchalik fayllarni tozalash")
+                }
+                if (busy) {
+                    Text(
+                        "Jarayon ketayotganda tozalab bo'lmaydi. Tugashini kuting yoki bekor qiling.",
+                        style = MaterialTheme.typography.bodySmall, color = cs.tertiary
+                    )
+                }
             }
 
             // ---------------- ilova haqida
@@ -463,6 +500,13 @@ fun SettingsScreen(
             Spacer(Modifier.navigationBarsPadding().height(16.dp))
         }
     }
+}
+
+private fun friendlyModelName(id: String): String = when (id) {
+    "tiny" -> "Tez"
+    "base" -> "Oddiy"
+    "small" -> "Aniq"
+    else -> id
 }
 
 @Composable

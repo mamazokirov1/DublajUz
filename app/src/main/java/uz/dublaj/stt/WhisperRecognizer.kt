@@ -26,7 +26,7 @@ class WhisperRecognizer(private val context: Context) {
 
     suspend fun ensureModel(modelFile: File) {
         if (!modelFile.isFile) {
-            throw IllegalStateException("Whisper model topilmadi: ${modelFile.absolutePath}")
+            throw IllegalStateException("Matn aniqlash komponenti topilmadi")
         }
         val path = modelFile.absolutePath
         if (model != null && loadedModelPath == path) return
@@ -116,9 +116,9 @@ class WhisperRecognizer(private val context: Context) {
 
         /** Faqat bepul AAR qo'llaydigan (kvantlanmagan) modellar. */
         val MODEL_OPTIONS = listOf(
-            ModelInfo("tiny", "ggml-tiny.bin", 75, "eng tez, sifat past"),
-            ModelInfo("base", "ggml-base.bin", 142, "tavsiya"),
-            ModelInfo("small", "ggml-small.bin", 466, "yaxshi sifat, sekinroq")
+            ModelInfo("tiny", "ggml-tiny.bin", 75, "Eng tez ishlaydi, lekin aniqligi pastroq"),
+            ModelInfo("base", "ggml-base.bin", 142, "Tavsiya etiladi: tez va yetarlicha aniq"),
+            ModelInfo("small", "ggml-small.bin", 466, "Eng aniq natija, lekin sekinroq ishlaydi")
         )
 
         data class ModelInfo(

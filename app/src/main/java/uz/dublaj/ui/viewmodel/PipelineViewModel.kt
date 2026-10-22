@@ -7,7 +7,10 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -68,6 +71,70 @@ class PipelineViewModel : ViewModel() {
     val modelStatus: StateFlow<String?> = _modelStatus.asStateFlow()
 
     val isBusy: Boolean get() = job?.isActive == true
+
+    // ---- ekranlar uchun kuzatiladigan holatlar
+    private val _busy = MutableStateFlow(false)
+    /** Ish ketyaptimi (Compose'da kuzatiladi; isBusy esa oddiy tekshiruv). */
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private val _cancelling = MutableStateFlow(false)
+    /** "Bekor qilish" bosildi, ish hozir to'xtayapti. */
+    val cancelling: StateFlow<Boolean> = _cancelling.asStateFlow()
+
+    private val _events = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    /** Foydalanuvchiga qisqa xabarlar (Snackbar). */
+    val uiEvents: SharedFlow<String> = _events.asSharedFlow()
+    fun toast(msg: String) { _events.tryEmit(msg) }
+
+    private val _workVersion = MutableStateFlow(0)
+    /** Vaqtinchalik fayllar o'zgarganda oshadi — Xotira kartasi qayta o'qiydi. */
+    val workVersion: StateFlow<Int> = _workVersion.asStateFlow()
+
+    private val _playerUri = MutableStateFlow<Uri?>(null)
+    val playerUri: StateFlow<Uri?> = _playerUri.asStateFlow()
+    fun openPlayer(uri: Uri) { _playerUri.value = uri }
+
+    private val _audioResult = MutableStateFlow<File?>(null)
+    /** Oxirgi "matn → ovoz" natijasi (WAV). */
+    val audioResult: StateFlow<File?> = _audioResult.asStateFlow()
+    fun clearAudioResult() { _audioResult.value = null }
+
+    private val _plainOriginal = MutableStateFlow("")
+    val plainOriginal: StateFlow<String> = _plainOriginal.asStateFlow()
+
+    /** Videodan ajratilgan matnni (vaqtlarsiz) diskdan o'qiydi. */
+    fun refreshPlainTexts(context: Context) {
+        val app = context.applicationContext
+        viewModelScope.launch {
+            _plainOriginal.value = withContext(Dispatchers.IO) { pipeline.plainTranscript(app) }
+        }
+    }
+
+    /** Tarjima qilingan (tahrir qilingan) o'zbekcha matn, bitta uzun matn sifatida. */
+    fun plainUzbek(): String =
+        _translationUnits.value.map { it.uzText.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
+
+    /** Istalgan o'zbekcha matnni ovozga aylantirib, WAV fayl qiladi. */
+    fun speak(context: Context, text: String) {
+        val app = context.applicationContext
+        if (text.isBlank()) { toast("Avval matn kiriting"); return }
+        if (isBusy) { toast("Hozir boshqa jarayon ketyapti. Tugashini kuting yoki bekor qiling."); return }
+        if (!_models.value.vits) { toast("Avval Sozlamalarda o'zbekcha ovoz fayllarini qo'shing"); return }
+        releasePreview()
+        _audioResult.value = null
+        launchTask(context, "Matnni ovozlashtirish") {
+            val cfg = _config.value
+            val f = withContext(Dispatchers.IO) {
+                pipeline.synthesizeText(app, text, cfg) { p, m ->
+                    _state.value = PipelineState.Running("Matnni ovozlashtirish", p, m)
+                }
+            }
+            _audioResult.value = f
+            _state.value = PipelineState.Idle
+            toast("Audio tayyor ✓")
+            PipelineService.notifyDone(app, "Audio tayyor", "Matn o'zbekcha ovozga aylantirildi")
+        }
+    }
 
     // ------------------------------------------------------------------ holat
 
@@ -137,7 +204,7 @@ class PipelineViewModel : ViewModel() {
                     val synth = previewSynth ?: pipeline.loadPreviewSynth(app, cfg).also { previewSynth = it }
                     synth.configure(
                         cfg.voiceNoise, cfg.voiceNoiseW,
-                        1f / cfg.voiceSpeed.coerceAtLeast(0.3f), cfg.fitScale, cfg.voicePause
+                        1f / cfg.voiceSpeed.coerceAtLeast(0.3f), cfg.fitScale, cfg.voicePause, cfg.voicePitch
                     )
                     val seg = synth.synthesize(text, null)
                     (if (cfg.levelClips) AudioLevel.level(seg.pcm) else seg.pcm) to seg.sampleRate
@@ -191,18 +258,27 @@ class PipelineViewModel : ViewModel() {
     }
 
     fun cancel() {
+        if (!isBusy) return
+        if (_cancelling.value) {
+            toast("Bekor qilinmoqda… biroz kuting")
+            return
+        }
         pipeline.cancel()
+        _cancelling.value = true
+        _state.update { if (it is PipelineState.Running) it.copy(message = "Bekor qilinmoqda…") else it }
+        if (_modelStatus.value != null) _modelStatus.value = "Bekor qilinmoqda…"
+        toast("Bekor qilinmoqda… hozirgi qadam tugashi bilan to'xtaydi")
     }
 
     // ------------------------------------------------------------------ bosqichlar
 
     fun transcribe(context: Context) {
         val uri = _videoUri.value ?: return
-        launchTask(context, "Transkript") {
+        launchTask(context, "Matn ajratish") {
             val cfg = _config.value
             withContext(Dispatchers.IO) {
                 pipeline.transcribe(context.applicationContext, uri, cfg) { p, m ->
-                    _state.value = PipelineState.Running("Transkript", p, m)
+                    _state.value = PipelineState.Running("Matn ajratish", p, m)
                 }
             }
             _hasTranscript.value = true
@@ -284,18 +360,20 @@ class PipelineViewModel : ViewModel() {
                 }.also { autoSave(app, it, cfg) }
             }
             _state.value = PipelineState.Success(out.absolutePath)
+            toast("Dublyaj tayyor ✓")
+            PipelineService.notifyDone(app, "Dublyaj tayyor", title.ifBlank { "Video dublyaj qilindi" })
         }
     }
 
-    /** Transkript + tarjima; keyin foydalanuvchi tahrir qiladi. */
+    /** Matn ajratish + tarjima; keyin foydalanuvchi tahrir qiladi. */
     fun transcribeAndTranslate(context: Context) {
         val uri = _videoUri.value ?: return
-        launchTask(context, "Transkript + tarjima") {
+        launchTask(context, "Matn va tarjima") {
             val cfg = _config.value
             val app = context.applicationContext
             withContext(Dispatchers.IO) {
                 pipeline.transcribe(app, uri, cfg) { p, m ->
-                    _state.value = PipelineState.Running("Transkript", p * 0.5f, m)
+                    _state.value = PipelineState.Running("Matn ajratish", p * 0.5f, m)
                 }
             }
             _hasTranscript.value = true
@@ -307,6 +385,9 @@ class PipelineViewModel : ViewModel() {
             _translationUnits.value = units
             _approved.value = false
             _state.value = PipelineState.Idle
+            _plainOriginal.value = withContext(Dispatchers.IO) { pipeline.plainTranscript(app) }
+            toast("Matn va tarjima tayyor ✓")
+            PipelineService.notifyDone(app, "Tarjima tayyor", "${units.size} ta gap tekshirishni kutmoqda")
         }
     }
 
@@ -315,18 +396,18 @@ class PipelineViewModel : ViewModel() {
     fun downloadWhisper(context: Context) {
         val app = context.applicationContext
         val id = _config.value.whisperModel
-        launchModelTask(app, "Whisper yuklanmoqda…") {
+        launchModelTask(app, "Matn aniqlash komponenti yuklanmoqda…") {
             pipeline.downloadWhisper(app, id) { d, t ->
-                _modelStatus.value = "Whisper: ${mb(d)} / ${if (t > 0) mb(t) else "?"}"
+                _modelStatus.value = "Matn aniqlash: ${mb(d)} / ${if (t > 0) mb(t) else "?"}"
             }
         }
     }
 
     fun downloadNllb(context: Context) {
         val app = context.applicationContext
-        launchModelTask(app, "NLLB yuklanmoqda…") {
+        launchModelTask(app, "Tarjima komponenti yuklanmoqda…") {
             pipeline.downloadNllb(app) { f, i, n, b, t ->
-                _modelStatus.value = "NLLB [$i/$n] ${f.substringAfterLast('/')}: ${mb(b)} / ${if (t > 0) mb(t) else "?"}"
+                _modelStatus.value = "Tarjima [$i/$n] ${f.substringAfterLast('/')}: ${mb(b)} / ${if (t > 0) mb(t) else "?"}"
             }
         }
     }
@@ -334,28 +415,28 @@ class PipelineViewModel : ViewModel() {
     fun importWhisper(context: Context, uri: Uri) {
         val app = context.applicationContext
         val id = _config.value.whisperModel
-        launchModelTask(app, "Whisper nusxalanmoqda…") { pipeline.importWhisper(app, uri, id) }
+        launchModelTask(app, "Matn aniqlash fayli qo'shilmoqda…") { pipeline.importWhisper(app, uri, id) }
     }
 
     fun importVitsModel(context: Context, uri: Uri) {
         val app = context.applicationContext
-        launchModelTask(app, "VITS nusxalanmoqda…") { pipeline.importVitsModel(app, uri) }
+        launchModelTask(app, "O'zbekcha ovoz fayli qo'shilmoqda…") { pipeline.importVitsModel(app, uri) }
     }
 
     fun importVitsConfig(context: Context, uri: Uri) {
         val app = context.applicationContext
-        launchModelTask(app, "TTS config nusxalanmoqda…") { pipeline.importVitsConfig(app, uri) }
+        launchModelTask(app, "Ovoz sozlama fayli qo'shilmoqda…") { pipeline.importVitsConfig(app, uri) }
     }
 
     fun importNllb(context: Context, treeUri: Uri) {
         val app = context.applicationContext
-        launchModelTask(app, "NLLB nusxalanmoqda…") {
+        launchModelTask(app, "Tarjima fayllari qo'shilmoqda…") {
             val n = pipeline.importNllb(app, treeUri) { _modelStatus.value = it }
             if (n < 5) throw IllegalStateException("Papkada kerakli fayllar topilmadi ($n/5 topildi)")
         }
     }
 
-    /** Download va boshqa papkalardan Whisper/NLLB/VITS fayllarini topib nusxalaydi. */
+    /** Yuklab olingan fayllarni (matn aniqlash, tarjima, ovoz) topib qo'shadi. */
     fun autoImport(context: Context, quiet: Boolean = false) {
         val app = context.applicationContext
         if (isBusy) return
@@ -363,7 +444,7 @@ class PipelineViewModel : ViewModel() {
             if (!quiet) _modelStatus.value = "Xato: fayllarga kirish ruxsati berilmagan"
             return
         }
-        launchModelTask(app, "Modellar qidirilmoqda…") {
+        launchModelTask(app, "Komponentlar qidirilmoqda…") {
             val rep = pipeline.autoImport(app) { _modelStatus.value = it }
             if (rep.found == 0) {
                 if (quiet) {
@@ -380,25 +461,35 @@ class PipelineViewModel : ViewModel() {
 
     fun importNllbFiles(context: Context, uris: List<Uri>) {
         val app = context.applicationContext
-        launchModelTask(app, "NLLB fayllari nusxalanmoqda…") {
+        launchModelTask(app, "Tarjima fayllari qo'shilmoqda…") {
             val n = pipeline.importNllbFiles(app, uris) { _modelStatus.value = it }
             if (n == 0) throw IllegalStateException(
-                "Tanlangan fayllar orasida kerakli NLLB fayli yo'q. Kerak: config.json, tokenizer.json, " +
+                "Tanlangan fayllar orasida kerakli tarjima fayli yo'q. Kerak: config.json, tokenizer.json, " +
                     "tokenizer_config.json, encoder_model_quantized.onnx, decoder_model_merged_quantized.onnx"
             )
         }
     }
 
     fun clearWork(context: Context) {
-        if (isBusy) return
+        if (isBusy) {
+            toast("Hozir jarayon ketyapti. Avval uni tugating yoki bekor qiling.")
+            return
+        }
         val app = context.applicationContext
-        viewModelScope.launch(Dispatchers.IO) {
-            pipeline.clearWork(app)
+        viewModelScope.launch {
+            val before = withContext(Dispatchers.IO) {
+                val b = pipeline.usedBytes(app)
+                pipeline.clearWork(app)
+                b
+            }
             _videoUri.value = null
             _hasTranscript.value = false
             _translationUnits.value = emptyList()
             _approved.value = false
+            _plainOriginal.value = ""
             _state.value = PipelineState.Idle
+            _workVersion.update { it + 1 }
+            toast(if (before > 0) "Tozalandi ✓ ${mb(before)} bo'shatildi" else "Tozalanadigan fayl yo'q ✓")
         }
     }
 
@@ -413,6 +504,8 @@ class PipelineViewModel : ViewModel() {
         if (job?.isActive == true) return
         val app = context.applicationContext
         pipeline.resetCancel()
+        _cancelling.value = false
+        _busy.value = true
         _state.value = PipelineState.Running(label, 0f, "Boshlanmoqda…")
         job = viewModelScope.launch {
             PipelineService.start(app, "$label ishlamoqda…")
@@ -422,14 +515,17 @@ class PipelineViewModel : ViewModel() {
                 throw e
             } catch (e: UserCancelled) {
                 _state.value = PipelineState.Idle
+                toast("Bekor qilindi ✓")
             } catch (e: OutOfMemoryError) {
                 Timber.e(e, "OOM")
-                _state.value = PipelineState.Error("Xotira yetmadi. Kichikroq video yoki kichikroq Whisper modelini tanlang.")
+                _state.value = PipelineState.Error("Xotira yetmadi. Kichikroq video tanlang yoki Sozlamalarda matn aniqlashni \"Tez\" rejimga o'tkazing.")
             } catch (e: Exception) {
                 Timber.e(e, "Pipeline xatosi")
                 _state.value = PipelineState.Error(e.message ?: e.toString())
             } finally {
                 PipelineService.stop(app)
+                _cancelling.value = false
+                _busy.value = false
             }
         }
     }
@@ -496,11 +592,13 @@ class PipelineViewModel : ViewModel() {
         if (_queue.value.none { it.status == QueueStatus.WAITING }) return
         val cfg = _config.value
         if (!_models.value.let { it.whisper && it.nllb && it.vits }) {
-            _modelStatus.value = "Xato: navbat uchun uchala model (Whisper, NLLB, VITS) kerak"
+            _modelStatus.value = "Xato: navbat uchun uchala komponent (matn aniqlash, tarjima, o'zbekcha ovoz) kerak"
             return
         }
         releasePreview()
         pipeline.resetCancel()
+        _cancelling.value = false
+        _busy.value = true
         // Navbat umumiy ish papkasidan foydalanadi: joriy bitta-video loyihasi tozalanadi
         _videoUri.value = null
         _hasTranscript.value = false
@@ -518,7 +616,7 @@ class PipelineViewModel : ViewModel() {
                         var skipped = 0
                         val out = withContext(Dispatchers.IO) {
                             pipeline.transcribe(app, item.uri, cfg) { p, m ->
-                                updateItem(item.id) { it.copy(progress = p * 0.25f, message = "Transkript: $m") }
+                                updateItem(item.id) { it.copy(progress = p * 0.25f, message = "Matn: $m") }
                             }
                             val translated = pipeline.translate(app, cfg) { p, m ->
                                 updateItem(item.id) { it.copy(progress = 0.25f + p * 0.25f, message = "Tarjima: $m") }
@@ -553,6 +651,11 @@ class PipelineViewModel : ViewModel() {
                 }
             } finally {
                 PipelineService.stop(app)
+                _cancelling.value = false
+                _busy.value = false
+                val done = _queue.value.count { it.status == QueueStatus.DONE }
+                toast("Navbat tugadi: $done ta video tayyor")
+                if (done > 0) PipelineService.notifyDone(app, "Navbat tugadi", "$done ta video dublyaj qilindi")
             }
         }
     }
@@ -571,6 +674,8 @@ class PipelineViewModel : ViewModel() {
     private fun launchModelTask(app: Context, label: String, block: suspend () -> Unit) {
         if (job?.isActive == true) return
         pipeline.resetCancel()
+        _cancelling.value = false
+        _busy.value = true
         _modelStatus.value = label
         job = viewModelScope.launch {
             PipelineService.start(app, label)
@@ -582,11 +687,14 @@ class PipelineViewModel : ViewModel() {
                 throw e
             } catch (e: UserCancelled) {
                 _modelStatus.value = "Bekor qilindi"
+                toast("Bekor qilindi ✓")
             } catch (e: Exception) {
                 Timber.e(e, "Model xatosi")
                 _modelStatus.value = "Xato: ${e.message}"
             } finally {
                 PipelineService.stop(app)
+                _cancelling.value = false
+                _busy.value = false
                 _models.value = withContext(Dispatchers.IO) { pipeline.modelsInfo(app, _config.value) }
             }
         }

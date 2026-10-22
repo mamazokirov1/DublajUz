@@ -69,8 +69,8 @@ object StorageScanner {
                     val n = f.name
                     when {
                         n in WHISPER_BY_FILE -> whisper.putIfAbsent(n, f)
-                        n == "vits_uzbek.onnx" -> if (vitsModel == null) vitsModel = f
-                        n == "uz_tts_base.json" -> if (vitsConfig == null) vitsConfig = f
+                        n == "O'zbekcha ovoz fayli (vits_uzbek.onnx)" -> if (vitsModel == null) vitsModel = f
+                        n == "Ovoz sozlama fayli (uz_tts_base.json)" -> if (vitsConfig == null) vitsConfig = f
                         n == "decoder_model_merged_quantized.onnx" -> decoders.add(f)
                     }
                 }
@@ -117,7 +117,7 @@ object StorageScanner {
         val notFound = ArrayList<String>()
 
         // Whisper
-        if (r.whisper.isEmpty()) notFound.add("Whisper (ggml-base.bin / ggml-tiny.bin / ggml-small.bin)")
+        if (r.whisper.isEmpty()) notFound.add("Matn aniqlash fayli (ggml-base.bin, ggml-small.bin yoki ggml-tiny.bin)")
         for ((name, src) in r.whisper) {
             found++
             val info = WHISPER_BY_FILE.getValue(name)
@@ -127,33 +127,33 @@ object StorageScanner {
             }
             val dest = File(work.models, name)
             if (isSame(src, dest)) continue
-            copy(src, dest, "Whisper ${info.id}", onProgress); copied++
+            copy(src, dest, "Matn aniqlash (${info.id})", onProgress); copied++
         }
 
         // VITS
-        if (r.vitsModel == null) notFound.add("vits_uzbek.onnx")
+        if (r.vitsModel == null) notFound.add("O'zbekcha ovoz fayli (vits_uzbek.onnx)")
         r.vitsModel?.let {
             found++
-            val dest = File(work.models, "vits_uzbek.onnx")
-            if (!isSame(it, dest)) { copy(it, dest, "VITS model", onProgress); copied++ }
+            val dest = File(work.models, "O'zbekcha ovoz fayli (vits_uzbek.onnx)")
+            if (!isSame(it, dest)) { copy(it, dest, "O'zbekcha ovoz", onProgress); copied++ }
         }
-        if (r.vitsConfig == null) notFound.add("uz_tts_base.json")
+        if (r.vitsConfig == null) notFound.add("Ovoz sozlama fayli (uz_tts_base.json)")
         r.vitsConfig?.let {
             found++
-            val dest = File(work.models, "uz_tts_base.json")
-            if (!isSame(it, dest)) { copy(it, dest, "TTS config", onProgress); copied++ }
+            val dest = File(work.models, "Ovoz sozlama fayli (uz_tts_base.json)")
+            if (!isSame(it, dest)) { copy(it, dest, "Ovoz sozlamasi", onProgress); copied++ }
         }
 
         // NLLB
         if (r.nllb == null) {
-            notFound.add("NLLB papkasi (config.json, tokenizer.json, tokenizer_config.json, onnx/…quantized.onnx)")
+            notFound.add("Tarjima papkasi (config.json, tokenizer.json, tokenizer_config.json, onnx/…quantized.onnx)")
         } else {
             found++
             val destRoot = NllbTranslator.modelDir(work)
             for ((rel, src) in r.nllb) {
                 val dest = File(destRoot, rel)
                 if (isSame(src, dest)) continue
-                copy(src, dest, "NLLB ${rel.substringAfterLast('/')}", onProgress); copied++
+                copy(src, dest, "Tarjima ${rel.substringAfterLast('/')}", onProgress); copied++
             }
         }
         return ImportReport(copied, found, notFound)

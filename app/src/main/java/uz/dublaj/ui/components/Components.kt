@@ -60,7 +60,8 @@ fun GradientHero(
     subtitle: String,
     onSettings: () -> Unit,
     onHistory: () -> Unit,
-    onQueue: () -> Unit
+    onQueue: () -> Unit,
+    onTools: (() -> Unit)? = null
 ) {
     Box(
         Modifier
@@ -90,6 +91,11 @@ fun GradientHero(
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.headlineMedium, color = Color.White)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+            }
+            if (onTools != null) {
+                IconButton(onClick = onTools) {
+                    Icon(Icons.Default.RecordVoiceOver, contentDescription = "Matn va ovoz", tint = Color.White)
+                }
             }
             IconButton(onClick = onQueue) {
                 Icon(Icons.Default.Queue, contentDescription = "Navbat", tint = Color.White)

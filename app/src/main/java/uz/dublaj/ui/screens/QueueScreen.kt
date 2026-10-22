@@ -88,7 +88,7 @@ fun QueueScreen(vm: PipelineViewModel, onBack: () -> Unit) {
                         Button(
                             onClick = {
                                 if (!ready) {
-                                    Toast.makeText(context, "Avval uchala modelni (Whisper, NLLB, VITS) tayyorlang", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "Avval Sozlamalarda uchala komponentni (matn aniqlash, tarjima, ovoz) tayyorlang", Toast.LENGTH_LONG).show()
                                 } else vm.startQueue(context)
                             },
                             enabled = hasWaiting,
@@ -117,7 +117,7 @@ fun QueueScreen(vm: PipelineViewModel, onBack: () -> Unit) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Avtomatik rejim", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Har bir video ketma-ket: transkript → tarjima → dublyaj. Tarjimani tekshirish yo'q, " +
+                            "Har bir video ketma-ket: matn ajratish → tarjima → dublyaj. Tarjimani tekshirish yo'q, " +
                                 "tarjima qilinmagan gaplar o'tkazib yuboriladi. Navbat ishlayotganda ilovani yopmang. " +
                                 "Joriy bitta-video loyihasi navbat boshlanganda tozalanadi.",
                             style = MaterialTheme.typography.bodySmall
