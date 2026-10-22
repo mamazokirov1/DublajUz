@@ -5,7 +5,6 @@ import org.json.JSONObject
 import timber.log.Timber
 import java.text.Normalizer
 import java.util.Locale
-import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 /**
@@ -16,11 +15,14 @@ class TextNormalizer(
     private val lexicon: Map<String, String> = emptyMap(),
     private val acronyms: String = "auto" // auto | spell | word
 ) {
+    // Lug'at qoidasi (lexicon.json):
+    //  - butunlay kichik harfli kalit ("json", "go mod") -> har qanday registrda ishlaydi
+    //  - tarkibida katta harf bor kalit ("JSON", "Google", "LoRa") -> faqat aynan shunday yozilganda
+    // Shu sababli "JSON" va "json" alohida yozuv bo'la oladi.
     private val caseSensitive: Map<String, String> =
         lexicon.filter { it.key != it.key.lowercase(Locale.ROOT) }
     private val caseInsensitive: Map<String, String> =
         lexicon.filter { it.key == it.key.lowercase(Locale.ROOT) }
-            .mapKeys { it.key.lowercase(Locale.ROOT) }
 
     companion object {
         private val ONES = listOf(
@@ -58,18 +60,27 @@ class TextNormalizer(
             'ў' to "o'", 'қ' to "q", 'ғ' to "g'", 'ҳ' to "h"
         )
 
+        @Volatile private var cached: TextNormalizer? = null
+
         fun fromAssets(context: Context, assetName: String = "lexicon.json"): TextNormalizer {
-            return try {
-                val json = context.assets.open(assetName).bufferedReader().readText()
-                val obj = JSONObject(json)
-                val map = mutableMapOf<String, String>()
-                obj.keys().forEach { k ->
-                    if (!k.startsWith("_")) map[k] = obj.getString(k)
+            cached?.let { return it }
+            return synchronized(this) {
+                cached ?: try {
+                    val json = context.applicationContext.assets.open(assetName)
+                        .bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        .removePrefix("\uFEFF")
+                    val obj = JSONObject(json)
+                    val map = LinkedHashMap<String, String>()
+                    obj.keys().forEach { k ->
+                        if (!k.startsWith("_")) map[k] = obj.getString(k)
+                    }
+                    Timber.i("lexicon yuklandi: ${map.size} ta yozuv")
+                    TextNormalizer(map).also { cached = it }
+                } catch (e: Exception) {
+                    // keshlamaymiz — keyingi chaqiruvda qayta urinadi
+                    Timber.e(e, "lexicon YUKLANMADI, bo'sh lug'at ishlatilmoqda")
+                    TextNormalizer()
                 }
-                TextNormalizer(map)
-            } catch (e: Exception) {
-                Timber.w(e, "lexicon yuklanmadi, bo'sh lug'at")
-                TextNormalizer()
             }
         }
     }
@@ -185,26 +196,29 @@ class TextNormalizer(
     }
 
     // ---------- lug'at ----------
-    private val lexRules: List<Pair<Regex, String>> by lazy {
-        val rules = mutableListOf<Pair<Regex, String>>()
-        // avval case-sensitive (AQSH, BMW), keyin case-insensitive; uzun kalitlar birinchi
-        for (k in caseSensitive.keys.sortedByDescending { it.length }) {
-            rules += Regex("(?<![\\p{L}\\p{N}])" + Pattern.quote(k) + "(?![\\p{L}\\p{N}])") to
-                Matcher.quoteReplacement(caseSensitive[k]!!)
+    // Barcha kalitlar BITTA regex'da, uzunlari birinchi: "5g sa" -> "5G" dan oldin,
+    // "Massive MIMO" -> "MIMO" dan oldin. Almashtirilgan matn qayta almashtirilmaydi.
+    private val lexPattern: Regex? by lazy {
+        val all = caseSensitive.keys.map { it to false } + caseInsensitive.keys.map { it to true }
+        if (all.isEmpty()) {
+            null
+        } else {
+            val body = all.sortedByDescending { it.first.length }   // barqaror: teng uzunlikda aniq-registr oldin
+                .joinToString("|") { (k, ci) ->
+                    val q = Pattern.quote(k)
+                    if (ci) "(?i:$q)" else q
+                }
+            Regex("(?<![\\p{L}\\p{N}])(?:$body)(?![\\p{L}\\p{N}])")
         }
-        for (k in caseInsensitive.keys.sortedByDescending { it.length }) {
-            rules += Regex(
-                "(?<![\\p{L}\\p{N}])" + Pattern.quote(k) + "(?![\\p{L}\\p{N}])",
-                RegexOption.IGNORE_CASE
-            ) to Matcher.quoteReplacement(caseInsensitive[k]!!)
-        }
-        rules
     }
 
     private fun applyLexicon(text: String): String {
-        var t = text
-        for ((re, rep) in lexRules) t = re.replace(t, rep)
-        return t
+        val re = lexPattern ?: return text
+        return re.replace(text) { m ->
+            caseSensitive[m.value]
+                ?: caseInsensitive[m.value.lowercase(Locale.ROOT)]
+                ?: m.value
+        }
     }
 
     // ---------- qisqartmalar ----------
