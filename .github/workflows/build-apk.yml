@@ -44,12 +44,15 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug -PbuildNumber=${{ github.run_number }} --stacktrace
 
+      # Kvota to'lsa ham build yiqilmasin (APK baribir Releases'ga yuklanadi)
       - name: Upload Debug APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: DublajUz-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 30
+          retention-days: 1
+          overwrite: true
 
       # Ixtiyoriy: Secrets ga KEYSTORE_B64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD qo'shsangiz
       # release o'z kalitingiz bilan imzolanadi. Aks holda debug kalit bilan imzolanadi (o'rnatsa bo'ladi).
@@ -68,12 +71,14 @@ jobs:
         run: gradle assembleRelease -PbuildNumber=${{ github.run_number }} --stacktrace
 
       - name: Upload Release APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: DublajUz-release-apk
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 1
+          overwrite: true
 
       - name: Publish GitHub Release (tag)
         if: startsWith(github.ref, 'refs/tags/')
