@@ -56,8 +56,15 @@ data class AppConfig(
     val themeMode: Int = 0,
     val dynamicColor: Boolean = false,
     /** Tayyor videoni avtomatik Galereyaga (Movies/DublajUz) ham saqlash. */
-    val autoSaveGallery: Boolean = false
-)
+    val autoSaveGallery: Boolean = false,
+    // ---- onlayn tarjima (Gemini)
+    val onlineTranslate: Boolean = false,
+    val geminiKey: String = "",
+    val geminiModel: String = "gemini-3.8-flash"
+) {
+    /** Onlayn tarjima yoqilgan va kalit kiritilgan. */
+    val onlineReady: Boolean get() = onlineTranslate && geminiKey.isNotBlank()
+}
 
 enum class VoicePreset(val label: String) { STANDARD("Standart"), NATURAL("Tabiiy"), CLEAR("Aniq"), FAST("Tez") }
 

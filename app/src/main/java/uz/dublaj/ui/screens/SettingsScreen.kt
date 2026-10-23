@@ -19,11 +19,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import uz.dublaj.data.VoicePreset
 import uz.dublaj.data.applyPreset
 import uz.dublaj.stt.WhisperRecognizer
+import uz.dublaj.translate.GeminiTranslator
 import uz.dublaj.translate.Languages
 import uz.dublaj.ui.components.*
 import uz.dublaj.ui.theme.ThemeSettings
@@ -122,6 +126,83 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                     )
                 }
+            }
+
+            // ---------------- onlayn tarjima (Gemini)
+            val uriHandler = LocalUriHandler.current
+            var showKey by remember { mutableStateOf(false) }
+            SectionCard(
+                icon = Icons.Default.Translate,
+                title = "Onlayn tarjima (Gemini)",
+                subtitle = if (config.onlineReady) "Yoqilgan ✓ — aniqroq tarjima"
+                else "O'chiq — offline tarjima ishlaydi",
+                initiallyExpanded = false
+            ) {
+                Text(
+                    "Gemini gaplarni kontekst bilan tarjima qiladi — jargon va og'zaki nutqni offline modeldan ancha yaxshi tushunadi. " +
+                        "Internet kerak. Matn (videoning o'zi emas) Google serveriga yuboriladi. Internet yoki limit bo'lmasa, " +
+                        "qolgan gaplar offline tarjima qilinadi (agar komponent yuklangan bo'lsa).",
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                )
+                SwitchRow(
+                    "Gemini bilan tarjima qilish",
+                    "Kalit kiritilgach ishlaydi. O'chirsangiz offline tarjima ishlatiladi.",
+                    config.onlineTranslate
+                ) { vm.setConfig(config.copy(onlineTranslate = it)) }
+                OutlinedTextField(
+                    value = config.geminiKey,
+                    onValueChange = { vm.setConfig(config.copy(geminiKey = it.trim())) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    singleLine = true,
+                    label = { Text("Gemini API kaliti") },
+                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(onClick = { showKey = !showKey }, shape = MaterialTheme.shapes.medium) {
+                        Text(if (showKey) "Yashirish" else "Ko'rsatish")
+                    }
+                    Button(
+                        onClick = { vm.testGemini() },
+                        enabled = config.geminiKey.isNotBlank(),
+                        shape = MaterialTheme.shapes.medium
+                    ) { Text("Kalitni tekshirish") }
+                }
+                Text("Kalitni qanday olish mumkin:", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    "1. Pastdagi tugmani bosing (Google AI Studio ochiladi).\n" +
+                        "2. Google akkauntingiz bilan kiring.\n" +
+                        "3. \"Create API key\" tugmasini bosing.\n" +
+                        "4. Chiqqan kalitni nusxalab, yuqoridagi maydonga qo'ying.\n" +
+                        "5. \"Kalitni tekshirish\" ni bosing, so'ng tarjimani yoqing.",
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = { uriHandler.openUri(GeminiTranslator.KEY_URL) },
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Icon(Icons.Default.Link, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Kalit olish (aistudio.google.com/apikey)")
+                }
+                if (expert) {
+                    OutlinedTextField(
+                        value = config.geminiModel,
+                        onValueChange = { vm.setConfig(config.copy(geminiModel = it.trim())) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        singleLine = true,
+                        label = { Text("Gemini modeli") },
+                        supportingText = { Text("Standart: ${GeminiTranslator.DEFAULT_MODEL}") }
+                    )
+                }
+                status?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = cs.primary)
+                }
+                Text(
+                    "Kalit faqat shu telefonda saqlanadi va hisobotlarga qo'shilmaydi. Bepul limitlar Google tomonidan o'zgarishi mumkin.",
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                )
             }
 
             // ---------------- modellar

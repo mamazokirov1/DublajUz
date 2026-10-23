@@ -29,7 +29,10 @@ object ConfigStore {
             expertMode = sp.getBoolean("expertMode", d.expertMode),
             themeMode = sp.getInt("themeMode", d.themeMode),
             dynamicColor = sp.getBoolean("dynamicColor", d.dynamicColor),
-            autoSaveGallery = sp.getBoolean("autoSaveGallery", d.autoSaveGallery)
+            autoSaveGallery = sp.getBoolean("autoSaveGallery", d.autoSaveGallery),
+            onlineTranslate = sp.getBoolean("onlineTranslate", d.onlineTranslate),
+            geminiKey = sp.getString("geminiKey", d.geminiKey) ?: d.geminiKey,
+            geminiModel = sp.getString("geminiModel", d.geminiModel) ?: d.geminiModel
         )
     }
 
@@ -55,6 +58,9 @@ object ConfigStore {
             .putInt("themeMode", c.themeMode)
             .putBoolean("dynamicColor", c.dynamicColor)
             .putBoolean("autoSaveGallery", c.autoSaveGallery)
+            .putBoolean("onlineTranslate", c.onlineTranslate)
+            .putString("geminiKey", c.geminiKey)
+            .putString("geminiModel", c.geminiModel)
             .apply()
     }
 }

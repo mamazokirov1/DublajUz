@@ -403,6 +403,24 @@ class PipelineViewModel : ViewModel() {
         }
     }
 
+    /** Sozlamalardagi "Kalitni tekshirish" tugmasi. */
+    fun testGemini() {
+        val cfg = _config.value
+        if (cfg.geminiKey.isBlank()) {
+            _modelStatus.value = "Avval Gemini kalitini kiriting"
+            return
+        }
+        viewModelScope.launch {
+            _modelStatus.value = "Gemini tekshirilmoqda…"
+            val msg = withContext(Dispatchers.IO) {
+                uz.dublaj.translate.GeminiTranslator(
+                    cfg.geminiKey, cfg.geminiModel.ifBlank { uz.dublaj.translate.GeminiTranslator.DEFAULT_MODEL }
+                ).test()
+            }
+            _modelStatus.value = msg
+        }
+    }
+
     fun downloadNllb(context: Context) {
         val app = context.applicationContext
         launchModelTask(app, "Tarjima komponenti yuklanmoqda…") {
@@ -625,7 +643,7 @@ class PipelineViewModel : ViewModel() {
         val app = context.applicationContext
         if (_queue.value.none { it.status == QueueStatus.WAITING }) return
         val cfg = _config.value
-        if (!_models.value.let { it.whisper && it.nllb && it.vits }) {
+        if (!_models.value.let { it.whisper && (it.nllb || cfg.onlineReady) && it.vits }) {
             _modelStatus.value = "Xato: navbat uchun uchala komponent (matn aniqlash, tarjima, o'zbekcha ovoz) kerak"
             return
         }

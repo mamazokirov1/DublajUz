@@ -79,7 +79,8 @@ fun HomeScreen(
 
     val hasTranslation = units.isNotEmpty()
     val running = state is PipelineState.Running
-    val modelsReady = models.whisper && models.nllb && models.vits
+    val translateOk = models.nllb || config.onlineReady
+    val modelsReady = models.whisper && translateOk && models.vits
     val autoImport = rememberAutoImportAction(vm)
 
     LaunchedEffect(Unit) {
@@ -152,7 +153,7 @@ fun HomeScreen(
                 // ---- modellar
                 if (!modelsReady) {
                     SetupCard(
-                        whisper = models.whisper, nllb = models.nllb, vits = models.vits,
+                        whisper = models.whisper, nllb = translateOk, vits = models.vits,
                         status = modelStatus,
                         busy = busy,
                         onAuto = autoImport,
@@ -222,12 +223,12 @@ fun HomeScreen(
                     BigButton(
                         text = "Matnni ajratib tarjima qilish",
                         icon = Icons.Default.Translate,
-                        enabled = videoUri != null && !running && models.whisper && models.nllb,
+                        enabled = videoUri != null && !running && models.whisper && translateOk,
                         onClick = { vm.transcribeAndTranslate(context) }
                     )
-                    if (!models.whisper || !models.nllb) {
+                    if (!models.whisper || !translateOk) {
                         Text(
-                            "Avval Sozlamalardan matn aniqlash va tarjima komponentlarini yuklab oling.",
+                            "Avval Sozlamalardan matn aniqlash va tarjima komponentlarini yuklab oling (yoki onlayn tarjimani yoqing).",
                             style = MaterialTheme.typography.bodySmall, color = cs.tertiary
                         )
                     }
@@ -238,7 +239,7 @@ fun HomeScreen(
                         ) { Text("Faqat matn ajratish") }
                         TextButton(
                             onClick = { vm.translate(context) },
-                            enabled = hasTranscript && !running && models.nllb
+                            enabled = hasTranscript && !running && translateOk
                         ) { Text("Qayta tarjima") }
                     }
                 }

@@ -21,6 +21,7 @@ import uz.dublaj.stt.WhisperRecognizer
 import uz.dublaj.text.SentenceMerger
 import uz.dublaj.text.TextNormalizer
 import uz.dublaj.text.TranslationQa
+import uz.dublaj.translate.GeminiTranslator
 import uz.dublaj.translate.NllbModelDownloader
 import uz.dublaj.translate.NllbTranslator
 import uz.dublaj.tts.VitsSynthesizer
@@ -299,50 +300,135 @@ class DubbingPipeline {
         // Whisper bo'laklarini TO'LIQ GAPLARGA birlashtiramiz: tarjima gap bo'yicha bo'ladi
         val src = SentenceMerger.merge(raw)
         Timber.i("Gaplar: ${raw.size} segment → ${src.size} gap")
-        if (!NllbTranslator.isReady(dir)) {
+        val onlineWanted = config.onlineReady
+        val nllbReady = NllbTranslator.isReady(dir)
+        if (!onlineWanted && !nllbReady) {
             throw IllegalStateException(
                 "Tarjima komponenti to'liq emas. Sozlamalar bo'limida uni qaytadan yuklab oling."
             )
         }
 
         val norm = TextNormalizer.fromAssets(context.applicationContext)
-        progress(0.02f, "Tarjima komponenti yuklanmoqda…")
-        val translator = NllbTranslator.load(dir, config.threads)
         val result = ArrayList<TranslationUnit>()
         var failed = 0
         var flagged = 0
         var firstError: String? = null
+
+        // ---- 1) Gemini (kontekstli, internet bilan). Muvaffaqiyatsiz gaplar keyin NLLB'ga tushadi.
+        val online = HashMap<Int, GeminiTranslator.Result>()
+        var onlineNote: String? = null
+        if (onlineWanted) {
+            progress(0.02f, "Gemini bilan tarjima…")
+            val gem = GeminiTranslator(config.geminiKey, config.geminiModel.ifBlank { GeminiTranslator.DEFAULT_MODEL })
+            val ctx = ArrayList<Pair<String, String>>()
+            var idx = 0
+            try {
+                while (idx < src.size) {
+                    checkCancelled()
+                    // bo'lak: ko'pi bilan 18 gap yoki ~3500 belgi
+                    val chunk = ArrayList<TranscriptUnit>()
+                    var chars = 0
+                    while (idx + chunk.size < src.size && chunk.size < 18 && (chunk.isEmpty() || chars < 3500)) {
+                        val u = src[idx + chunk.size]
+                        chunk.add(u)
+                        chars += u.text.length
+                    }
+                    progress(0.05f + 0.85f * idx / src.size, "Gemini ${idx + 1}–${idx + chunk.size}/${src.size}")
+                    val items = chunk.mapIndexed { k, u ->
+                        val nextStart = src.getOrNull(idx + k + 1)?.start
+                        val slot = maxOf(u.end - u.start, (nextStart ?: (u.end + 1.5)) - u.start)
+                        GeminiTranslator.Item(u.id, u.text, (slot * GeminiTranslator.CHARS_PER_SEC).toInt().coerceAtLeast(20))
+                    }
+                    val lang = chunk.first().language
+                    val got: Map<Int, GeminiTranslator.Result> = try {
+                        gem.translateChunk(lang, ctx.takeLast(4), items, src.getOrNull(idx + chunk.size)?.text)
+                    } catch (e: GeminiTranslator.GeminiException) {
+                        if (e.fatal) throw e
+                        Timber.w("Gemini bo'lak xato: ${e.message}")
+                        if (onlineNote == null) onlineNote = e.message
+                        emptyMap()
+                    }
+                    for (u in chunk) {
+                        val r = got[u.id] ?: continue
+                        online[u.id] = r
+                        ctx.add(Pair(u.text, r.uz))
+                    }
+                    idx += chunk.size
+                }
+            } catch (e: GeminiTranslator.GeminiException) {
+                // kalit/ruxsat xatosi: onlayn qismni to'xtatamiz
+                onlineNote = e.message
+                Timber.w("Gemini to'xtatildi: ${e.message}")
+            }
+            if (online.size < src.size && !nllbReady) {
+                if (online.isEmpty()) {
+                    throw IllegalStateException("Gemini tarjima qilmadi: ${onlineNote ?: "noma'lum xato"}")
+                }
+            }
+        }
+
+        // ---- 2) NLLB (offline) — faqat kerak bo'lsa yuklanadi
+        val needNllb = src.any { it.id !in online } && nllbReady
+        var translator: NllbTranslator? = null
         try {
+            if (needNllb) {
+                progress(if (onlineWanted) 0.9f else 0.02f, "Tarjima komponenti yuklanmoqda…")
+                translator = NllbTranslator.load(dir, config.threads)
+            }
             src.forEachIndexed { i, u ->
-                progress(0.1f + 0.85f * i / src.size, "Tarjima ${i + 1}/${src.size}")
+                checkCancelled()
+                progress(
+                    if (onlineWanted) 0.9f + 0.09f * i / src.size else 0.1f + 0.85f * i / src.size,
+                    "Tarjima ${i + 1}/${src.size}"
+                )
                 try {
-                    val cands = translator.translateNBest(u.text, u.language)
-                    if (cands.isEmpty()) throw IllegalStateException("Bo'sh tarjima")
-                    // QA normalizatsiyadan OLDIN (aks holda raqamlar so'zga aylanib, hammasi "shubhali" bo'lib qoladi)
-                    var chosenRaw = cands[0].text
-                    var qa: String? = TranslationQa.issue(u.text, chosenRaw)
-                    if (qa != null) {
-                        for (c in cands.drop(1)) {
-                            if (TranslationQa.issue(u.text, c.text) == null) {
-                                chosenRaw = c.text
-                                qa = null
-                                break
+                    val g = online[u.id]
+                    if (g != null) {
+                        // Gemini natijasi
+                        val uz = norm.normalize(g.uz)
+                        if (uz.isBlank()) throw IllegalStateException("Bo'sh tarjima")
+                        val qa = TranslationQa.issue(u.text, g.uz)
+                        val alts = ArrayList<String>()
+                        alts.add(uz)
+                        val sh = g.short?.let { norm.normalize(it) }
+                        if (!sh.isNullOrBlank() && sh !in alts) alts.add(sh)
+                        if (qa != null) {
+                            flagged++
+                            Timber.w("Tarjima shubhali #${u.id}: $qa")
+                        }
+                        result.add(TranslationUnit(u.id, u.start, u.end, u.text, uz, u.language, qa != null, alts))
+                    } else {
+                        val tr = translator ?: throw IllegalStateException(
+                            onlineNote?.let { "Gemini: $it" } ?: "Tarjima komponenti yo'q"
+                        )
+                        val cands = tr.translateNBest(u.text, u.language)
+                        if (cands.isEmpty()) throw IllegalStateException("Bo'sh tarjima")
+                        // QA normalizatsiyadan OLDIN (aks holda raqamlar so'zga aylanib, hammasi "shubhali" bo'lib qoladi)
+                        var chosenRaw = cands[0].text
+                        var qa: String? = TranslationQa.issue(u.text, chosenRaw)
+                        if (qa != null) {
+                            for (c in cands.drop(1)) {
+                                if (TranslationQa.issue(u.text, c.text) == null) {
+                                    chosenRaw = c.text
+                                    qa = null
+                                    break
+                                }
                             }
                         }
+                        val uz = norm.normalize(chosenRaw)
+                        if (uz.isBlank()) throw IllegalStateException("Bo'sh tarjima")
+                        val alts = ArrayList<String>()
+                        alts.add(uz)
+                        for (c in cands) {
+                            val n = norm.normalize(c.text)
+                            if (n.isNotBlank() && n !in alts) alts.add(n)
+                        }
+                        if (qa != null) {
+                            flagged++
+                            Timber.w("Tarjima shubhali #${u.id}: $qa")
+                        }
+                        result.add(TranslationUnit(u.id, u.start, u.end, u.text, uz, u.language, qa != null, alts))
                     }
-                    val uz = norm.normalize(chosenRaw)
-                    if (uz.isBlank()) throw IllegalStateException("Bo'sh tarjima")
-                    val alts = ArrayList<String>()
-                    alts.add(uz)
-                    for (c in cands) {
-                        val n = norm.normalize(c.text)
-                        if (n.isNotBlank() && n !in alts) alts.add(n)
-                    }
-                    if (qa != null) {
-                        flagged++
-                        Timber.w("Tarjima shubhali #${u.id}: $qa")
-                    }
-                    result.add(TranslationUnit(u.id, u.start, u.end, u.text, uz, u.language, qa != null, alts))
                 } catch (e: UserCancelled) {
                     throw e
                 } catch (e: Exception) {
@@ -354,7 +440,7 @@ class DubbingPipeline {
                 }
             }
         } finally {
-            translator.close()
+            translator?.close()
         }
         if (failed == src.size) {
             throw IllegalStateException("Hech bir segment tarjima qilinmadi: $firstError")
@@ -362,7 +448,9 @@ class DubbingPipeline {
 
         dir.approvedFlag.delete()
         saveTranslation(context, result)
-        progress(1f, if (failed + flagged > 0) "Tayyor (${failed + flagged} ta gap tekshirilsin)" else "Tarjima tayyor")
+        val onlineCount = online.size
+        val done = if (onlineWanted) "Tarjima tayyor (Gemini: $onlineCount/${src.size})" else "Tarjima tayyor"
+        progress(1f, if (failed + flagged > 0) "Tayyor (${failed + flagged} ta gap tekshirilsin)" else done)
         return result
     }
 
