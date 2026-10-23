@@ -60,7 +60,15 @@ data class AppConfig(
     // ---- onlayn tarjima (Gemini)
     val onlineTranslate: Boolean = false,
     val geminiKey: String = "",
-    val geminiModel: String = "gemini-3.8-flash"
+    val geminiModel: String = "gemini-3.8-flash",
+    /** Video mavzusi va uslubi haqida erkin izoh (Gemini'ga beriladi). */
+    val videoContext: String = "",
+    /** Murojaat shakli: "auto", "sen", "siz". */
+    val addressForm: String = "auto",
+    /** Ohang: "casual" (og'zaki), "neutral", "formal". */
+    val tone: String = "casual",
+    /** Lug'at: har qatorda "so'z = tarjima". */
+    val glossary: String = ""
 ) {
     /** Onlayn tarjima yoqilgan va kalit kiritilgan. */
     val onlineReady: Boolean get() = onlineTranslate && geminiKey.isNotBlank()

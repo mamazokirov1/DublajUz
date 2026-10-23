@@ -32,7 +32,11 @@ object ConfigStore {
             autoSaveGallery = sp.getBoolean("autoSaveGallery", d.autoSaveGallery),
             onlineTranslate = sp.getBoolean("onlineTranslate", d.onlineTranslate),
             geminiKey = sp.getString("geminiKey", d.geminiKey) ?: d.geminiKey,
-            geminiModel = sp.getString("geminiModel", d.geminiModel) ?: d.geminiModel
+            geminiModel = sp.getString("geminiModel", d.geminiModel) ?: d.geminiModel,
+            videoContext = sp.getString("videoContext", d.videoContext) ?: d.videoContext,
+            addressForm = sp.getString("addressForm", d.addressForm) ?: d.addressForm,
+            tone = sp.getString("tone", d.tone) ?: d.tone,
+            glossary = sp.getString("glossary", d.glossary) ?: d.glossary
         )
     }
 
@@ -61,6 +65,10 @@ object ConfigStore {
             .putBoolean("onlineTranslate", c.onlineTranslate)
             .putString("geminiKey", c.geminiKey)
             .putString("geminiModel", c.geminiModel)
+            .putString("videoContext", c.videoContext)
+            .putString("addressForm", c.addressForm)
+            .putString("tone", c.tone)
+            .putString("glossary", c.glossary)
             .apply()
     }
 }

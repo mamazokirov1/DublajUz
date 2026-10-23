@@ -18,6 +18,14 @@ class GeminiTranslator(
     data class Item(val id: Int, val text: String, val maxChars: Int)
     data class Result(val uz: String, val short: String?)
 
+    /** Foydalanuvchi bergan uslub ko'rsatmalari. */
+    data class Style(
+        val context: String = "",
+        val address: String = "auto",   // auto | sen | siz
+        val tone: String = "casual",    // casual | neutral | formal
+        val glossary: String = ""       // har qatorda "so'z = tarjima"
+    )
+
     /** [fatal] = true: kalit noto'g'ri / ruxsat yo'q — qayta urinishdan foyda yo'q. */
     class GeminiException(message: String, val fatal: Boolean) : Exception(message)
 
@@ -50,7 +58,8 @@ class GeminiTranslator(
         srcLang: String,
         context: List<Pair<String, String>>,
         items: List<Item>,
-        nextHint: String?
+        nextHint: String?,
+        style: Style = Style()
     ): Map<Int, Result> {
         if (items.isEmpty()) return emptyMap()
 
@@ -71,7 +80,7 @@ class GeminiTranslator(
         }
 
         val body = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT + styleBlock(style)))))
             .put(
                 "contents", JSONArray().put(
                     JSONObject().put("role", "user")
@@ -89,6 +98,35 @@ class GeminiTranslator(
     }
 
     // ------------------------------------------------------------------ ichki
+
+    private fun styleBlock(s: Style): String {
+        val sb = StringBuilder()
+        sb.append("\n\nVideo-specific instructions (from the user, follow them):\n")
+        val ctx = s.context.trim().take(600)
+        if (ctx.isNotEmpty()) sb.append("- Video topic and style: ").append(ctx).append('\n')
+        when (s.address) {
+            "sen" -> sb.append("- Address the listener informally with \"sen\" (second person singular) consistently.\n")
+            "siz" -> sb.append("- Address the listener politely with \"siz\" consistently.\n")
+            else -> sb.append("- Choose sen/siz from the speaker's tone and keep it consistent.\n")
+        }
+        when (s.tone) {
+            "formal" -> sb.append("- Register: polite, formal, clear Uzbek.\n")
+            "neutral" -> sb.append("- Register: neutral, clear spoken Uzbek.\n")
+            else -> sb.append(
+                "- Register: casual, lively spoken Uzbek, the way a native friend or blogger would say it. " +
+                    "Avoid bookish, literary or stiff words and avoid word-for-word calques of the source.\n"
+            )
+        }
+        val terms = s.glossary.lines().mapNotNull { line ->
+            val parts = line.trim().split(Regex("\\s*(=>|->|=)\\s*"), limit = 2)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) parts[0].trim() to parts[1].trim() else null
+        }.take(60)
+        if (terms.isNotEmpty()) {
+            sb.append("- Mandatory glossary (always render these terms exactly like this):\n")
+            for ((a, b) in terms) sb.append("    ").append(a.take(80)).append(" => ").append(b.take(80)).append('\n')
+        }
+        return sb.toString()
+    }
 
     private fun parse(raw: String): Map<Int, Result> {
         var t = raw.trim()
@@ -230,7 +268,7 @@ Translate every numbered segment into natural SPOKEN Uzbek that sounds like a na
 Rules:
 1. Meaning first. Be faithful: never invent, omit or soften content.
 2. The segments come from automatic speech recognition. If a word is obviously misrecognized, infer the intended word from the context.
-3. Idioms, slang, jokes and colloquial speech: translate the intended meaning into natural Uzbek, never word for word.
+3. Idioms, slang, jokes and colloquial speech: first work out what the speaker really means, then say it the way a native Uzbek speaker would in the same situation. Never translate word for word. Prefer everyday Uzbek words; keep a Russian/English loanword only when Uzbeks really use it (mashina, telefon, internet).
 4. Keep proper names, brands and places; use standard Uzbek Latin spelling where one exists.
 5. Write numbers as digits.
 6. Use the plain ASCII apostrophe for o', g' and a'lo (never typographic quotes).

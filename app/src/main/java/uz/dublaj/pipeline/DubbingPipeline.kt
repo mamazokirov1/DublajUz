@@ -341,7 +341,10 @@ class DubbingPipeline {
                     }
                     val lang = chunk.first().language
                     val got: Map<Int, GeminiTranslator.Result> = try {
-                        gem.translateChunk(lang, ctx.takeLast(4), items, src.getOrNull(idx + chunk.size)?.text)
+                        gem.translateChunk(
+                            lang, ctx.takeLast(4), items, src.getOrNull(idx + chunk.size)?.text,
+                            GeminiTranslator.Style(config.videoContext, config.addressForm, config.tone, config.glossary)
+                        )
                     } catch (e: GeminiTranslator.GeminiException) {
                         if (e.fatal) throw e
                         Timber.w("Gemini bo'lak xato: ${e.message}")

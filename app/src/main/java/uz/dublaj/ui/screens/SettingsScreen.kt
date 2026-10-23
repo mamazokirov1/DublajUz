@@ -196,6 +196,47 @@ fun SettingsScreen(
                         supportingText = { Text("Standart: ${GeminiTranslator.DEFAULT_MODEL}") }
                     )
                 }
+                Text("Tarjima uslubi", style = MaterialTheme.typography.labelLarge)
+                OutlinedTextField(
+                    value = config.videoContext,
+                    onValueChange = { vm.setConfig(config.copy(videoContext = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    minLines = 2,
+                    maxLines = 5,
+                    label = { Text("Video mavzusi va uslubi (ixtiyoriy)") },
+                    supportingText = { Text("Masalan: yo'l harakati, norasmiy, ustoz shogirdga gapiradi") }
+                )
+                Text("Murojaat", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("auto" to "Avto", "sen" to "Sen", "siz" to "Siz").forEach { (id, label) ->
+                        FilterChip(
+                            selected = config.addressForm == id,
+                            onClick = { vm.setConfig(config.copy(addressForm = id)) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                Text("Ohang", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("casual" to "Og'zaki", "neutral" to "Oddiy", "formal" to "Rasmiy").forEach { (id, label) ->
+                        FilterChip(
+                            selected = config.tone == id,
+                            onClick = { vm.setConfig(config.copy(tone = id)) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = config.glossary,
+                    onValueChange = { vm.setConfig(config.copy(glossary = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    minLines = 3,
+                    maxLines = 8,
+                    label = { Text("Lug'at (ixtiyoriy)") },
+                    supportingText = { Text("Har qatorda: so'z = tarjima. Masalan: фура = yuk mashinasi") }
+                )
                 status?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = cs.primary)
                 }
