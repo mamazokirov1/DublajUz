@@ -656,8 +656,8 @@ class PipelineViewModel : ViewModel() {
                                 updateItem(item.id) { it.copy(progress = 0.25f + p * 0.25f, message = "Tarjima: $m") }
                             }
                             // Tarjima qilinmagan gaplar o'tkazib yuboriladi (avtomatik rejimda tahrir yo'q)
-                            skipped = translated.count { it.check }
-                            val units = translated.map { if (it.check) it.copy(uzText = "", check = false) else it }
+                            skipped = translated.count { it.check && it.uzText == it.text }
+                            val units = translated.map { if (it.check && it.uzText == it.text) it.copy(uzText = "", check = false) else it.copy(check = false) }
                             pipeline.saveTranslation(app, units)
                             pipeline.markApproved(app)
                             pipeline.dub(app, units, cfg, item.name) { p, m ->

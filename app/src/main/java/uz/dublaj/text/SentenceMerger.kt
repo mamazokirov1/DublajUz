@@ -16,7 +16,7 @@ object SentenceMerger {
     /** Gap oxiri: . ! ? … (keyin ixtiyoriy yopuvchi qo'shtirnoq/qavs). */
     private val SENT_END = Regex("[.!?…][\"»”')\\]]*\\s*$")
 
-    const val MAX_UNIT_SEC = 20.0
+    const val MAX_UNIT_SEC = 15.0
     const val MAX_GAP_SEC = 1.0
     const val MAX_CHARS = 600
 

@@ -19,8 +19,30 @@ class DubMixer(
     private val originalVol: Float,
     private val dubVol: Float,
     /** Dublaj gapirganda asl ovoz ko'paytmasi (1 = pasaytirmaslik). */
-    private val duckGain: Float = 1f
+    private val duckGain: Float = 1f,
+    /** Asl nutq oralig'i (sample, [sr] chastotada): shu vaqtda ham asl ovoz pasaytiriladi. */
+    origSpeech: List<Pair<Long, Long>> = emptyList()
 ) : Closeable {
+
+    private val rStart: LongArray
+    private val rEnd: LongArray
+    private var rangeIdx = 0
+
+    init {
+        val ms = ArrayList<Long>()
+        val me = ArrayList<Long>()
+        for ((s, e) in origSpeech.sortedBy { it.first }) {
+            if (e <= s) continue
+            if (me.isNotEmpty() && s <= me[me.lastIndex]) {
+                if (e > me[me.lastIndex]) me[me.lastIndex] = e
+            } else {
+                ms.add(s)
+                me.add(e)
+            }
+        }
+        rStart = ms.toLongArray()
+        rEnd = me.toLongArray()
+    }
 
     private class Active(val clip: SegmentPlacer.Clip, val data: ShortArray)
 
@@ -59,6 +81,22 @@ class DubMixer(
                 speech[i] = true
                 t++
             }
+        }
+
+        // ---- asl nutq oralig'ini ham "gapirish" deb belgilaymiz (dublaj kechiksa ham ikki ovoz bo'lmasin)
+        var ri = rangeIdx
+        while (ri < rEnd.size && rEnd[ri] <= startSample) ri++
+        rangeIdx = ri
+        var rj = ri
+        while (rj < rStart.size && rStart[rj] < end) {
+            val f0 = max(startSample, rStart[rj])
+            val t0 = min(end, rEnd[rj])
+            var q = f0
+            while (q < t0) {
+                speech[(q - startSample).toInt()] = true
+                q++
+            }
+            rj++
         }
 
         // ---- asl ovoz (gapirganda silliq pasaytiriladi)

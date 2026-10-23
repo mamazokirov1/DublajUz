@@ -244,7 +244,13 @@ class DubbingPipeline {
         }
         checkCancelled()
         val fixes = SttFixes.load(context, File(dir.root, "stt_fixes.json"))
-        val units: List<TranscriptUnit> = SttFixes.apply(result.units, fixes)
+        val fixedUnits: List<TranscriptUnit> = SttFixes.apply(result.units, fixes)
+        val units: List<TranscriptUnit> = try {
+            SpeechSnap.refine(dir.extractedWav, fixedUnits)
+        } catch (e: Exception) {
+            Timber.w(e, "SpeechSnap ishlamadi")
+            fixedUnits
+        }
         val lang: String = result.language
         dir.extractedWav.delete()
 
@@ -310,14 +316,33 @@ class DubbingPipeline {
             src.forEachIndexed { i, u ->
                 progress(0.1f + 0.85f * i / src.size, "Tarjima ${i + 1}/${src.size}")
                 try {
-                    val uz = norm.normalize(translator.translate(u.text, u.language))
+                    val cands = translator.translateNBest(u.text, u.language)
+                    if (cands.isEmpty()) throw IllegalStateException("Bo'sh tarjima")
+                    // QA normalizatsiyadan OLDIN (aks holda raqamlar so'zga aylanib, hammasi "shubhali" bo'lib qoladi)
+                    var chosenRaw = cands[0].text
+                    var qa: String? = TranslationQa.issue(u.text, chosenRaw)
+                    if (qa != null) {
+                        for (c in cands.drop(1)) {
+                            if (TranslationQa.issue(u.text, c.text) == null) {
+                                chosenRaw = c.text
+                                qa = null
+                                break
+                            }
+                        }
+                    }
+                    val uz = norm.normalize(chosenRaw)
                     if (uz.isBlank()) throw IllegalStateException("Bo'sh tarjima")
-                    val qa = TranslationQa.issue(u.text, uz)
+                    val alts = ArrayList<String>()
+                    alts.add(uz)
+                    for (c in cands) {
+                        val n = norm.normalize(c.text)
+                        if (n.isNotBlank() && n !in alts) alts.add(n)
+                    }
                     if (qa != null) {
                         flagged++
                         Timber.w("Tarjima shubhali #${u.id}: $qa")
                     }
-                    result.add(TranslationUnit(u.id, u.start, u.end, u.text, uz, u.language, qa != null))
+                    result.add(TranslationUnit(u.id, u.start, u.end, u.text, uz, u.language, qa != null, alts))
                 } catch (e: UserCancelled) {
                     throw e
                 } catch (e: Exception) {
@@ -364,7 +389,8 @@ class DubbingPipeline {
                 TranslationUnit(
                     u.getInt("id"), u.getDouble("start"), u.getDouble("end"),
                     u.getString("text"), u.getString("uzText"),
-                    u.optString("language", "en"), u.optBoolean("check", false)
+                    u.optString("language", "en"), u.optBoolean("check", false),
+                    u.optJSONArray("alts")?.let { arr -> (0 until arr.length()).map { k -> arr.getString(k) } } ?: emptyList()
                 )
             }
         } catch (e: Exception) {
@@ -421,6 +447,7 @@ class DubbingPipeline {
             clipDir = dir.temp
         )
         val clips = ArrayList<SegmentPlacer.Clip>()
+        val usedText = HashMap<Int, String>()
 
         progress(0.02f, "Ovoz komponenti yuklanmoqda…")
         val synth = VitsSynthesizer.load(
@@ -438,7 +465,20 @@ class DubbingPipeline {
                 progress(0.05f + 0.55f * i / active.size, "Ovozlashtirish ${i + 1}/${active.size}")
                 val next = active.getOrNull(i + 1)?.start
                 val slot = (next ?: duration) - u.start
-                val seg = synth.synthesize(u.uzText, slot.coerceAtLeast(0.3))
+                val availSec = (slot - config.marginS).coerceAtLeast(0.3)
+                var seg = synth.synthesize(u.uzText, slot.coerceAtLeast(0.3))
+                // Sig'masa: qisqaroq tarjima nomzodini sinaymiz (faqat foydalanuvchi matnni o'zgartirmagan bo'lsa)
+                if (seg.durationSec > availSec * 1.12 && u.alts.size > 1 && u.alts[0] == u.uzText) {
+                    for (alt in u.alts.drop(1).take(3)) {
+                        val s2 = synth.synthesize(alt, slot.coerceAtLeast(0.3))
+                        if (s2.durationSec <= availSec * 1.12) {
+                            seg = s2
+                            usedText[u.id] = alt
+                            Timber.i("Gap #${u.id}: qisqaroq variant tanlandi")
+                            break
+                        }
+                    }
+                }
                 val resampled = StreamResampler.resample(seg.pcm, seg.sampleRate, OUT_SR)
                 val pcm = if (config.levelClips) uz.dublaj.util.AudioLevel.level(resampled) else resampled
                 placer.place(u.id, u.start, next, pcm)?.let { clips.add(it) }
@@ -458,7 +498,10 @@ class DubbingPipeline {
         val outFile = File(dir.output, "dublaj_${System.currentTimeMillis()}.mp4")
         val totalSamples = (duration * OUT_SR).toLong()
         try {
-            DubMixer(OUT_SR, WavFile(dir.mixWav), clips, config.originalVolume, config.uzbekVolume, config.duckAmount).use { mixer ->
+            val origRanges = active.map { a ->
+                Pair((maxOf(0.0, a.start - 0.05) * OUT_SR).toLong(), (a.end * OUT_SR).toLong())
+            }
+            DubMixer(OUT_SR, WavFile(dir.mixWav), clips, config.originalVolume, config.uzbekVolume, config.duckAmount, origRanges).use { mixer ->
                 VideoMuxer.mux(video, outFile, OUT_SR, totalSamples, mixer) { p ->
                     progress(0.72f + 0.27f * p, "Video yig'ilmoqda…")
                 }
@@ -470,12 +513,17 @@ class DubbingPipeline {
         // Tarix uchun: metama'lumot va subtitrlar videoning yonida saqlanadi
         try {
             HistoryStore.writeMeta(outFile, title, duration, active.size)
-            SrtExporter.write(ExportUtils.srtFile(outFile, true), units, true)
-            SrtExporter.write(ExportUtils.srtFile(outFile, false), units, false)
+            val finalUnits = if (usedText.isEmpty()) units else units.map { x ->
+                val t = usedText[x.id]
+                if (t != null) x.copy(uzText = t) else x
+            }
+            SrtExporter.write(ExportUtils.srtFile(outFile, true), finalUnits, true)
+            SrtExporter.write(ExportUtils.srtFile(outFile, false), finalUnits, false)
         } catch (e: Exception) {
             Timber.w(e, "Tarix/SRT yozilmadi")
         }
-        progress(1f, "Tayyor")
+        val fast = clips.count { it.speed > 1.2f }
+        progress(1f, if (fast > 0) "Tayyor ($fast ta gap tezlashtirilgan)" else "Tayyor")
         return outFile
     }
 

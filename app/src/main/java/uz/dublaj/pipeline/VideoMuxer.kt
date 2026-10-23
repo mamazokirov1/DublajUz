@@ -97,6 +97,7 @@ object VideoMuxer {
             var inputDone = false
             var audioDone = false
             var samplesFed = 0L
+            val aStartUs = audioStartUs(videoFile)
             var lastAudioPts = 0L
             val aInfo = MediaCodec.BufferInfo()
 
@@ -107,7 +108,7 @@ object VideoMuxer {
                     if (idx >= 0) {
                         val buf = enc.getInputBuffer(idx)!!
                         buf.clear()
-                        val pts = samplesFed * 1_000_000L / sampleRate
+                        val pts = aStartUs + samplesFed * 1_000_000L / sampleRate
                         if (samplesFed >= totalSamples) {
                             enc.queueInputBuffer(idx, 0, 0, pts, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
@@ -199,6 +200,33 @@ object VideoMuxer {
         Timber.i("Mux tayyor: ${outFile.absolutePath} (${outFile.length() / 1024} KB)")
         onProgress(1f)
         return outFile
+    }
+
+    /** Asl audio trekning birinchi vaqt belgisi (dublaj audiosi shunga nisbatan joylashadi). */
+    private fun audioStartUs(file: File): Long {
+        val ex = MediaExtractor()
+        return try {
+            ex.setDataSource(file.absolutePath)
+            var idx = -1
+            for (i in 0 until ex.trackCount) {
+                val mime = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: ""
+                if (mime.startsWith("audio/")) {
+                    idx = i
+                    break
+                }
+            }
+            if (idx < 0) {
+                0L
+            } else {
+                ex.selectTrack(idx)
+                val t = ex.sampleTime
+                if (t in 1L..2_000_000L) t else 0L
+            }
+        } catch (e: Exception) {
+            0L
+        } finally {
+            try { ex.release() } catch (_: Exception) {}
+        }
     }
 
     private fun probeVideoMime(file: File): String? {

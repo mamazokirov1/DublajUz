@@ -16,7 +16,9 @@ data class TranslationUnit(
     val uzText: String,        // foydalanuvchi tahrir qilgan o'zbekcha matn
     val language: String = "en",
     /** true = tarjima ishlamadi / tekshirish kerak. Foydalanuvchi tahrir qilgach false bo'ladi. */
-    val check: Boolean = false
+    val check: Boolean = false,
+    /** Tarjima nomzodlari (alts[0] = tanlangan). Dublaj vaqtida sig'masa qisqaroq variant sinab ko'riladi. */
+    val alts: List<String> = emptyList()
 )
 
 data class AppConfig(
@@ -44,7 +46,7 @@ data class AppConfig(
     val fitScale: Float = 0.8f,
     // ---- aralashtirish
     /** Dublaj gapirganda asl ovoz darajasi (1.0 = pasaytirilmaydi). */
-    val duckAmount: Float = 0.4f,
+    val duckAmount: Float = 0.2f,
     /** Har bir klip balandligini tenglash. */
     val levelClips: Boolean = true,
     // ---- ko'rinish

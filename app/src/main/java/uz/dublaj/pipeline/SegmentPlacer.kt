@@ -19,7 +19,9 @@ class SegmentPlacer(
     private val marginSec: Double,
     private val gapSec: Double,
     private val clipDir: File,
-    private val fadeMs: Int = 12
+    private val fadeMs: Int = 12,
+    /** Sig'masa klip asl gap boshidan ko'pi bilan shuncha oldin boshlanishi mumkin. */
+    private val maxEarlySec: Double = 0.25
 ) {
     data class Clip(
         val id: Int,
@@ -51,7 +53,11 @@ class SegmentPlacer(
         }
 
         var placeAt = from
-        if (placeAt + dur > limit) placeAt = max(0.0, limit - dur)
+        if (placeAt + dur > limit) {
+            // Oldinga cheklangan siljish; qolgani keyingi gapga "qarz" bo'lib o'tadi (cursor)
+            val earliest = max(cursor, start - maxEarlySec)
+            placeAt = max(0.0, max(earliest, limit - dur))
+        }
 
         val startSample = (placeAt * sr).roundToInt().toLong().coerceAtLeast(0)
         applyFade(audio)
