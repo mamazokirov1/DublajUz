@@ -206,6 +206,7 @@ class PipelineViewModel : ViewModel() {
                         cfg.voiceNoise, cfg.voiceNoiseW,
                         1f / cfg.voiceSpeed.coerceAtLeast(0.3f), cfg.fitScale, cfg.voicePause, cfg.voicePitch
                     )
+                    synth.setUserPronunciations(cfg.pronDict)
                     val seg = synth.synthesize(text, null)
                     (if (cfg.levelClips) AudioLevel.level(seg.pcm) else seg.pcm) to seg.sampleRate
                 }

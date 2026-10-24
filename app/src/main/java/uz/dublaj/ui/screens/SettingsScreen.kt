@@ -492,6 +492,16 @@ fun SettingsScreen(
                 }
 
                 OutlinedTextField(
+                    value = config.pronDict,
+                    onValueChange = { vm.setConfig(config.copy(pronDict = it)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    minLines = 2,
+                    maxLines = 6,
+                    label = { Text("Talaffuz lug'ati (ixtiyoriy)") },
+                    supportingText = { Text("Har qatorda: so'z = qanday o'qilsin. Masalan: Gemini = jemini") }
+                )
+                OutlinedTextField(
                     value = sample,
                     onValueChange = { sample = it },
                     modifier = Modifier.fillMaxWidth(),

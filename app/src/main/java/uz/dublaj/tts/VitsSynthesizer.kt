@@ -44,6 +44,61 @@ class VitsSynthesizer(
     /** Ovoz tembri (yarim ton). */
     @Volatile var pitchSemitones = 0f
 
+    @Volatile private var userPron: List<Pair<Regex, String>> = emptyList()
+
+    /** Talaffuz lug'ati: har qatorda "so'z = qanday o'qilsin". */
+    fun setUserPronunciations(raw: String) {
+        val list = ArrayList<Pair<Regex, String>>()
+        for (line in raw.lines()) {
+            val parts = line.trim().split(Regex("\\s*(=>|->|=)\\s*"), limit = 2)
+            if (parts.size != 2) continue
+            val key = parts[0].trim()
+            val value = parts[1].trim()
+            if (key.isEmpty() || value.isEmpty()) continue
+            list.add(
+                Pair(
+                    Regex("(?<![\\p{L}'])" + Regex.escape(key) + "(?![\\p{L}'])", RegexOption.IGNORE_CASE),
+                    value
+                )
+            )
+        }
+        userPron = list
+    }
+
+    private fun applyUserPron(text: String): String {
+        var t = text
+        for ((re, v) in userPron) t = t.replace(re) { v }
+        return t
+    }
+
+    /** Chunk boshi/oxiridagi jimlikni kesadi (VITS ~0.1–0.3 s bo'sh joy qoldiradi): vaqt hisobi aniqroq bo'ladi. */
+    private fun trimSilence(a: ShortArray): ShortArray {
+        if (a.size < sampleRate / 10) return a
+        var peak = 0
+        for (v in a) {
+            val x = if (v < 0) -v.toInt() else v.toInt()
+            if (x > peak) peak = x
+        }
+        if (peak < 300) return a
+        val thr = maxOf(120, (peak * 0.012f).toInt())
+        val win = maxOf(1, sampleRate / 200) // 5 ms
+        fun loud(start: Int): Boolean {
+            val end = minOf(a.size, start + win)
+            if (end <= start) return false
+            var s = 0L
+            for (i in start until end) s += if (a[i] < 0) -a[i].toInt() else a[i].toInt()
+            return s / (end - start) > thr
+        }
+        var first = 0
+        while (first < a.size && !loud(first)) first += win
+        var last = a.size
+        while (last > 0 && !loud(maxOf(0, last - win))) last -= win
+        if (first >= last) return a
+        val from = maxOf(0, first - sampleRate * 20 / 1000)
+        val to = minOf(a.size, last + sampleRate * 50 / 1000)
+        return a.copyOfRange(from, to)
+    }
+
     /** Modelni qayta yuklamasdan sintez parametrlarini almashtirish (tinglab ko'rish uchun). */
     fun configure(noise: Float, noiseW: Float, baseLength: Float, minLength: Float, pause: Float, pitch: Float = 0f) {
         pitchSemitones = pitch
@@ -64,7 +119,7 @@ class VitsSynthesizer(
 
     fun synthesize(text: String, slotSec: Double? = null): SegmentAudio {
         check(!closed.get())
-        var prepared = normalizer.normalize(text)
+        var prepared = normalizer.normalize(applyUserPron(text))
         prepared = prepared.replace(Regex("\\s*[–—―]\\s*|\\s+-\\s+"), ", ")
         if (prepared.isBlank()) {
             return SegmentAudio(ShortArray(0), sampleRate, 1f)
@@ -99,6 +154,7 @@ class VitsSynthesizer(
         val chunks = splitText(text, maxChars)
         val parts = mutableListOf<ShortArray>()
         val pause = ShortArray((sampleRate * pauseS).toInt())
+        val pauseShort = ShortArray((sampleRate * pauseS * 0.5f).toInt())
 
         chunks.forEachIndexed { i, chunk ->
             val ids = textToIds(chunk, addBlank)
@@ -123,12 +179,16 @@ class VitsSynthesizer(
                     val pcm = ShortArray(floats.size) { i ->
                         (floats[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
                     }
-                    parts += pcm
+                    parts += trimSilence(pcm)
                 }
             } finally {
                 inputs.values.forEach { it.close() }
             }
-            if (i < chunks.lastIndex) parts += pause
+            if (i < chunks.lastIndex) {
+                val endCh = chunk.trimEnd().lastOrNull()
+                val sentenceEnd = endCh != null && ".!?…".indexOf(endCh) >= 0
+                parts += if (sentenceEnd) pause else pauseShort
+            }
         }
 
         if (parts.isEmpty()) return ShortArray(0)
@@ -181,7 +241,8 @@ class VitsSynthesizer(
             pauseS: Float = 0.25f,
             threads: Int = 4,
             baseLengthScale: Float = 1.0f,
-            pitchSemitones: Float = 0f
+            pitchSemitones: Float = 0f,
+            userPron: String = ""
         ): VitsSynthesizer {
             val (model, configFile) = modelFiles(work)
             if (!isReady(work)) {
@@ -214,6 +275,7 @@ class VitsSynthesizer(
             ).also {
                 it.baseScale = baseLengthScale
                 it.pitchSemitones = pitchSemitones
+                it.setUserPronunciations(userPron)
             }
         }
 
@@ -252,8 +314,14 @@ class VitsSynthesizer(
             for (s in sentences) {
                 var sentence = s
                 while (sentence.length > maxChars) {
-                    var cut = sentence.lastIndexOf(' ', maxChars)
-                    if (cut <= 0) cut = maxChars
+                    var cut = -1
+                    val window = sentence.substring(0, minOf(sentence.length, maxChars))
+                    val clause = Regex("[,;:]\\s").findAll(window).lastOrNull()
+                    if (clause != null && clause.range.first >= maxChars * 4 / 10) cut = clause.range.first + 1
+                    if (cut <= 0) {
+                        cut = sentence.lastIndexOf(' ', maxChars)
+                        if (cut <= 0) cut = maxChars
+                    }
                     val piece = sentence.substring(0, cut).trim()
                     if (piece.isNotEmpty()) {
                         if (cur.isNotEmpty()) {

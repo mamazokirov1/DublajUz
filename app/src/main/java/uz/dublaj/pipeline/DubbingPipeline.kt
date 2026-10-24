@@ -140,7 +140,8 @@ class DubbingPipeline {
         }
         return VitsSynthesizer.load(
             dir, TextNormalizer.fromAssets(context.applicationContext),
-            threads = config.threads, pitchSemitones = config.voicePitch
+            threads = config.threads, pitchSemitones = config.voicePitch,
+            userPron = config.pronDict
         )
     }
 
@@ -594,7 +595,8 @@ class DubbingPipeline {
                 pauseS = config.voicePause,
                 threads = config.threads,
                 baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f),
-                pitchSemitones = config.voicePitch
+                pitchSemitones = config.voicePitch,
+                userPron = config.pronDict
             )
             vitsSynth = loaded
             return loaded
@@ -730,7 +732,8 @@ class DubbingPipeline {
             pauseS = config.voicePause,
             threads = config.threads,
             baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f),
-            pitchSemitones = config.voicePitch
+            pitchSemitones = config.voicePitch,
+            userPron = config.pronDict
         )
         val out = File(dir.output, "ovoz_${System.currentTimeMillis()}.wav")
         try {

@@ -69,6 +69,8 @@ data class AppConfig(
     val tone: String = "casual",
     /** Lug'at: har qatorda "so'z = tarjima". */
     val glossary: String = "",
+    /** TTS talaffuz lug'ati: har qatorda "so'z = qanday o'qilsin". */
+    val pronDict: String = "",
     // ---- Chatterbox (server) ovozi va klonlash
     /** "vits" (offline, standart) yoki "chatterbox" (server). */
     val ttsEngine: String = "vits",

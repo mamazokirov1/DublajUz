@@ -37,6 +37,7 @@ object ConfigStore {
             addressForm = sp.getString("addressForm", d.addressForm) ?: d.addressForm,
             tone = sp.getString("tone", d.tone) ?: d.tone,
             glossary = sp.getString("glossary", d.glossary) ?: d.glossary,
+            pronDict = sp.getString("pronDict", d.pronDict) ?: d.pronDict,
             ttsEngine = sp.getString("ttsEngine", d.ttsEngine) ?: d.ttsEngine,
             cbUrl = sp.getString("cbUrl", d.cbUrl) ?: d.cbUrl,
             cbToken = sp.getString("cbToken", d.cbToken) ?: d.cbToken,
@@ -75,6 +76,7 @@ object ConfigStore {
             .putString("addressForm", c.addressForm)
             .putString("tone", c.tone)
             .putString("glossary", c.glossary)
+            .putString("pronDict", c.pronDict)
             .putString("ttsEngine", c.ttsEngine)
             .putString("cbUrl", c.cbUrl)
             .putString("cbToken", c.cbToken)
