@@ -33,7 +33,7 @@ fun QueueScreen(vm: PipelineViewModel, onBack: () -> Unit) {
     val running = queue.any { it.status == QueueStatus.RUNNING }
     val hasWaiting = queue.any { it.status == QueueStatus.WAITING }
     val queueCfg by vm.config.collectAsState()
-    val ready = models.whisper && (models.nllb || queueCfg.onlineReady) && models.vits
+    val ready = models.whisper && (models.nllb || queueCfg.onlineReady) && (models.vits || queueCfg.chatterboxReady)
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) vm.addToQueue(context, uris)

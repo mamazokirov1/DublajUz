@@ -29,7 +29,7 @@ object BugReport {
         sb.appendLine("ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
         sb.appendLine("RAM: ${mi.totalMem / 1024 / 1024} MB jami, ${mi.availMem / 1024 / 1024} MB bo'sh")
         sb.appendLine("Modellar: whisper=${models.whisper} nllb=${models.nllb} vits=${models.vits}")
-        sb.appendLine("Sozlamalar: ${config.copy(geminiKey = if (config.geminiKey.isBlank()) "" else "***")}")
+        sb.appendLine("Sozlamalar: ${config.copy(geminiKey = if (config.geminiKey.isBlank()) "" else "***", cbToken = if (config.cbToken.isBlank()) "" else "***")}")
         if (note.isNotBlank()) {
             sb.appendLine()
             sb.appendLine("--- Foydalanuvchi izohi ---")

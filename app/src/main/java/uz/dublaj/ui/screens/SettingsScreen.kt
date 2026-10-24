@@ -67,6 +67,9 @@ fun SettingsScreen(
     val whisperPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { vm.importWhisper(context, it) }
     }
+    val voiceRefPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let { vm.importVoiceRef(context, it) }
+    }
     val vitsPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { vm.importVitsModel(context, it) }
     }
@@ -244,6 +247,98 @@ fun SettingsScreen(
                     "Kalit faqat shu telefonda saqlanadi va hisobotlarga qo'shilmaydi. Bepul limitlar Google tomonidan o'zgarishi mumkin.",
                     style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
                 )
+            }
+
+            // ---------------- ovoz: Chatterbox (server) va klonlash — faqat ilg'or rejimda (tajriba)
+            if (expert) {
+            var showCbToken by remember { mutableStateOf(false) }
+            SectionCard(
+                icon = Icons.Default.Mic,
+                title = "Tajriba: Chatterbox ovozi (server)",
+                subtitle = if (config.chatterboxReady) "Chatterbox yoqilgan ✓" else "Offline ovoz (VITS) ishlaydi",
+                initiallyExpanded = false
+            ) {
+                Text(
+                    "Chatterbox o'zbekcha ovozni ancha tabiiy chiqaradi va ixtiyoriy namuna ovozni klonlay oladi. " +
+                        "Model telefonda ishlamaydi: uni Google Colab (GPU) yoki o'z serveringizda ishga tushirib, manzilini kiriting. " +
+                        "Server ishlamasa, offline ovoz zaxira bo'ladi (agar uning fayllari qo'shilgan bo'lsa).",
+                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                )
+                Text("Ovoz dvigateli", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("vits" to "Offline (VITS)", "chatterbox" to "Chatterbox").forEach { (id, label) ->
+                        FilterChip(
+                            selected = config.ttsEngine == id,
+                            onClick = { vm.setConfig(config.copy(ttsEngine = id)) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                if (config.ttsEngine == "chatterbox") {
+                    OutlinedTextField(
+                        value = config.cbUrl,
+                        onValueChange = { vm.setConfig(config.copy(cbUrl = it.trim())) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        singleLine = true,
+                        label = { Text("Server manzili (https://…)") }
+                    )
+                    OutlinedTextField(
+                        value = config.cbToken,
+                        onValueChange = { vm.setConfig(config.copy(cbToken = it.trim())) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        singleLine = true,
+                        label = { Text("Server tokeni") },
+                        visualTransformation = if (showCbToken) VisualTransformation.None else PasswordVisualTransformation()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = { showCbToken = !showCbToken }, shape = MaterialTheme.shapes.medium) {
+                            Text(if (showCbToken) "Yashirish" else "Ko'rsatish")
+                        }
+                        Button(
+                            onClick = { vm.testChatterbox() },
+                            enabled = config.cbUrl.isNotBlank(),
+                            shape = MaterialTheme.shapes.medium
+                        ) { Text("Serverni tekshirish") }
+                    }
+                    Text("Qaysi ovozda gapirsin", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("default" to "Standart", "video" to "Videodagi ovoz", "file" to "Namuna fayl").forEach { (id, label) ->
+                            FilterChip(
+                                selected = config.cbVoiceMode == id,
+                                onClick = { vm.setConfig(config.copy(cbVoiceMode = id)) },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                    if (config.cbVoiceMode == "video") {
+                        Text(
+                            "Videodan ≈10 soniyalik namuna avtomatik olinadi (matn aniqlash paytida). Bir nechta spiker bo'lsa yoki fon musiqasi baland bo'lsa, \"Namuna fayl\" yaxshiroq.",
+                            style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant
+                        )
+                    }
+                    if (config.cbVoiceMode == "file") {
+                        OutlinedButton(
+                            onClick = { voiceRefPicker.launch(arrayOf("audio/*")) },
+                            shape = MaterialTheme.shapes.medium
+                        ) { Text("Namuna ovozni tanlash (5–15 soniya, toza nutq)") }
+                        if (config.cbRefName.isNotBlank()) {
+                            Text("Tanlangan: ${config.cbRefName}", style = MaterialTheme.typography.bodySmall, color = cs.primary)
+                        }
+                    }
+                    if (config.cbVoiceMode != "default") {
+                        SwitchRow(
+                            "Bu ovozdan foydalanishga huquqim bor",
+                            "Faqat o'zingizning yoki egasi roziligini bergan ovozni klonlang. Boshqa shaxs ovozini roziligisiz ishlatish qonunga zid bo'lishi mumkin.",
+                            config.cbCloneConsent
+                        ) { vm.setConfig(config.copy(cbCloneConsent = it)) }
+                    }
+                    status?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = cs.primary)
+                    }
+                }
+            }
             }
 
             // ---------------- modellar

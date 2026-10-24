@@ -22,6 +22,9 @@ class WorkDir(context: Context) {
     val approvedFlag get() = File(temp, "approved.flag")
     val extractedWav get() = File(temp, "extracted.wav")      // 16 kHz — Whisper uchun
     val mixWav get() = File(temp, "original_mix.wav")         // 22.05 kHz — aralashtirish uchun
+    val refAutoWav get() = File(temp, "ref_auto.wav")         // videodan ajratilgan namuna ovoz (klonlash uchun)
+    /** Foydalanuvchi tanlagan namuna ovoz (voice_ref.<kengaytma>). */
+    val refUserFile: File? get() = root.listFiles()?.firstOrNull { it.name.startsWith("voice_ref.") && it.isFile }
 
     /** Vaqtinchalik fayllarni (klip, wav) o'chiradi; transkript/tarjima/tasdiq qoladi. */
     fun clearHeavyTemp() {

@@ -36,7 +36,13 @@ object ConfigStore {
             videoContext = sp.getString("videoContext", d.videoContext) ?: d.videoContext,
             addressForm = sp.getString("addressForm", d.addressForm) ?: d.addressForm,
             tone = sp.getString("tone", d.tone) ?: d.tone,
-            glossary = sp.getString("glossary", d.glossary) ?: d.glossary
+            glossary = sp.getString("glossary", d.glossary) ?: d.glossary,
+            ttsEngine = sp.getString("ttsEngine", d.ttsEngine) ?: d.ttsEngine,
+            cbUrl = sp.getString("cbUrl", d.cbUrl) ?: d.cbUrl,
+            cbToken = sp.getString("cbToken", d.cbToken) ?: d.cbToken,
+            cbVoiceMode = sp.getString("cbVoiceMode", d.cbVoiceMode) ?: d.cbVoiceMode,
+            cbCloneConsent = sp.getBoolean("cbCloneConsent", d.cbCloneConsent),
+            cbRefName = sp.getString("cbRefName", d.cbRefName) ?: d.cbRefName
         )
     }
 
@@ -69,6 +75,12 @@ object ConfigStore {
             .putString("addressForm", c.addressForm)
             .putString("tone", c.tone)
             .putString("glossary", c.glossary)
+            .putString("ttsEngine", c.ttsEngine)
+            .putString("cbUrl", c.cbUrl)
+            .putString("cbToken", c.cbToken)
+            .putString("cbVoiceMode", c.cbVoiceMode)
+            .putBoolean("cbCloneConsent", c.cbCloneConsent)
+            .putString("cbRefName", c.cbRefName)
             .apply()
     }
 }

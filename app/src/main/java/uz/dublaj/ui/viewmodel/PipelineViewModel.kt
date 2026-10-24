@@ -421,6 +421,31 @@ class PipelineViewModel : ViewModel() {
         }
     }
 
+    /** Sozlamalardagi "Serverni tekshirish" tugmasi. */
+    fun testChatterbox() {
+        val cfg = _config.value
+        if (cfg.cbUrl.isBlank()) {
+            _modelStatus.value = "Avval server manzilini kiriting"
+            return
+        }
+        viewModelScope.launch {
+            _modelStatus.value = "Server tekshirilmoqda…"
+            val msg = withContext(Dispatchers.IO) {
+                uz.dublaj.tts.ChatterboxClient(cfg.cbUrl, cfg.cbToken).health()
+            }
+            _modelStatus.value = msg
+        }
+    }
+
+    /** Klonlash uchun namuna ovoz faylini tanlash. */
+    fun importVoiceRef(context: Context, uri: Uri) {
+        val app = context.applicationContext
+        launchModelTask(app, "Namuna ovoz qo'shilmoqda…") {
+            val name = pipeline.importVoiceRef(app, uri)
+            setConfig(_config.value.copy(cbRefName = name, cbVoiceMode = "file"))
+        }
+    }
+
     fun downloadNllb(context: Context) {
         val app = context.applicationContext
         launchModelTask(app, "Tarjima komponenti yuklanmoqda…") {
@@ -643,7 +668,7 @@ class PipelineViewModel : ViewModel() {
         val app = context.applicationContext
         if (_queue.value.none { it.status == QueueStatus.WAITING }) return
         val cfg = _config.value
-        if (!_models.value.let { it.whisper && (it.nllb || cfg.onlineReady) && it.vits }) {
+        if (!_models.value.let { it.whisper && (it.nllb || cfg.onlineReady) && (it.vits || cfg.chatterboxReady) }) {
             _modelStatus.value = "Xato: navbat uchun uchala komponent (matn aniqlash, tarjima, o'zbekcha ovoz) kerak"
             return
         }

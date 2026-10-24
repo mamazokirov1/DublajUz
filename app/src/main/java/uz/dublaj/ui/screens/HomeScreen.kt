@@ -80,7 +80,8 @@ fun HomeScreen(
     val hasTranslation = units.isNotEmpty()
     val running = state is PipelineState.Running
     val translateOk = models.nllb || config.onlineReady
-    val modelsReady = models.whisper && translateOk && models.vits
+    val ttsOk = models.vits || config.chatterboxReady
+    val modelsReady = models.whisper && translateOk && ttsOk
     val autoImport = rememberAutoImportAction(vm)
 
     LaunchedEffect(Unit) {
@@ -153,7 +154,7 @@ fun HomeScreen(
                 // ---- modellar
                 if (!modelsReady) {
                     SetupCard(
-                        whisper = models.whisper, nllb = translateOk, vits = models.vits,
+                        whisper = models.whisper, nllb = translateOk, vits = ttsOk,
                         status = modelStatus,
                         busy = busy,
                         onAuto = autoImport,
@@ -286,12 +287,12 @@ fun HomeScreen(
                     BigButton(
                         text = "Dublyaj qilish",
                         icon = Icons.Default.Mic,
-                        enabled = approved && !running && models.vits,
+                        enabled = approved && !running && ttsOk,
                         onClick = { vm.dub(context) }
                     )
-                    if (!models.vits) {
+                    if (!ttsOk) {
                         Text(
-                            "O'zbekcha ovoz fayllari kerak (Sozlamalar bo'limida qo'shing).",
+                            "O'zbekcha ovoz fayllari kerak (Sozlamalar bo'limida qo'shing yoki Chatterbox serverini ulang).",
                             style = MaterialTheme.typography.bodySmall, color = cs.tertiary
                         )
                     }

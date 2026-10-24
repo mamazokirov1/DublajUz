@@ -68,8 +68,20 @@ data class AppConfig(
     /** Ohang: "casual" (og'zaki), "neutral", "formal". */
     val tone: String = "casual",
     /** Lug'at: har qatorda "so'z = tarjima". */
-    val glossary: String = ""
+    val glossary: String = "",
+    // ---- Chatterbox (server) ovozi va klonlash
+    /** "vits" (offline, standart) yoki "chatterbox" (server). */
+    val ttsEngine: String = "vits",
+    val cbUrl: String = "",
+    val cbToken: String = "",
+    /** "default" (o'qitilgan ovoz), "video" (videodagi spiker), "file" (tanlangan namuna). */
+    val cbVoiceMode: String = "default",
+    val cbCloneConsent: Boolean = false,
+    val cbRefName: String = ""
 ) {
+    /** Chatterbox tanlangan va server manzili kiritilgan. */
+    val chatterboxReady: Boolean get() = ttsEngine == "chatterbox" && cbUrl.isNotBlank()
+
     /** Onlayn tarjima yoqilgan va kalit kiritilgan. */
     val onlineReady: Boolean get() = onlineTranslate && geminiKey.isNotBlank()
 }

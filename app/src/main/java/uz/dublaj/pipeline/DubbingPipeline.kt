@@ -24,6 +24,7 @@ import uz.dublaj.text.TranslationQa
 import uz.dublaj.translate.GeminiTranslator
 import uz.dublaj.translate.NllbModelDownloader
 import uz.dublaj.translate.NllbTranslator
+import uz.dublaj.tts.ChatterboxClient
 import uz.dublaj.tts.VitsSynthesizer
 import uz.dublaj.util.FileUtils
 import uz.dublaj.util.ModelImporter
@@ -106,6 +107,21 @@ class DubbingPipeline {
     fun importVitsModel(context: Context, uri: Uri) {
         val (m, _) = VitsSynthesizer.modelFiles(ensure(context))
         ModelImporter.importFile(context, uri, m, 100_000)
+    }
+
+    /** Klonlash uchun namuna ovoz faylini saqlaydi. Qaytaradi: fayl nomi. */
+    fun importVoiceRef(context: Context, uri: Uri): String {
+        val dir = ensure(context)
+        val name = FileUtils.displayName(context, uri)
+        val ext = name.substringAfterLast('.', "wav").lowercase().filter { it.isLetterOrDigit() }.take(5).ifEmpty { "wav" }
+        dir.root.listFiles()?.filter { it.name.startsWith("voice_ref.") }?.forEach { it.delete() }
+        val dest = File(dir.root, "voice_ref.$ext")
+        FileUtils.copyUriToFile(context, uri, dest)
+        if (dest.length() > 25L * 1024 * 1024) {
+            dest.delete()
+            throw IllegalStateException("Namuna ovoz juda katta (25 MB gacha bo'lsin)")
+        }
+        return name
     }
 
     fun importVitsConfig(context: Context, uri: Uri) {
@@ -251,6 +267,12 @@ class DubbingPipeline {
         } catch (e: Exception) {
             Timber.w(e, "SpeechSnap ishlamadi")
             fixedUnits
+        }
+        // Ovoz klonlash uchun videodan namuna ovoz (extracted.wav o'chirilishidan oldin)
+        try {
+            ReferenceVoice.extract(dir.extractedWav, units, dir.refAutoWav)
+        } catch (e: Exception) {
+            Timber.w(e, "Namuna ovoz ajratilmadi")
         }
         val lang: String = result.language
         dir.extractedWav.delete()
@@ -512,10 +534,30 @@ class DubbingPipeline {
         val progress = wrap(onProgress)
         val dir = ensure(context)
         if (!dir.approvedFlag.isFile) throw IllegalStateException("Tarjima tasdiqlanmagan")
-        if (!VitsSynthesizer.isReady(dir)) {
+        val useCb = config.chatterboxReady
+        val vitsOk = VitsSynthesizer.isReady(dir)
+        if (!useCb && !vitsOk) {
             throw IllegalStateException(
                 "O'zbekcha ovoz komponenti yo'q. Sozlamalarda ovoz fayllarini (.onnx va .json) qo'shing."
             )
+        }
+        val cbRef: File? = if (useCb) {
+            when (config.cbVoiceMode) {
+                "video" -> dir.refAutoWav.takeIf { it.isFile && it.length() > 0 }
+                "file" -> dir.refUserFile
+                else -> null
+            }
+        } else null
+        if (useCb && config.cbVoiceMode != "default") {
+            if (!config.cbCloneConsent) {
+                throw IllegalStateException("Ovoz klonlash uchun Sozlamalarda rozilik belgisini qo'ying")
+            }
+            if (cbRef == null) {
+                throw IllegalStateException(
+                    if (config.cbVoiceMode == "video") "Videodan namuna ovoz ajratilmagan. Videoni qayta aniqlang yoki \"Namuna fayl\" rejimini tanlang."
+                    else "Namuna ovoz fayli tanlanmagan"
+                )
+            }
         }
         val video = localVideo?.takeIf { it.isFile }
             ?: throw IllegalStateException("Video topilmadi — videoni qayta tanlang")
@@ -540,28 +582,54 @@ class DubbingPipeline {
         val clips = ArrayList<SegmentPlacer.Clip>()
         val usedText = HashMap<Int, String>()
 
-        progress(0.02f, "Ovoz komponenti yuklanmoqda…")
-        val synth = VitsSynthesizer.load(
-            dir, norm,
-            noiseScale = config.voiceNoise,
-            noiseScaleW = config.voiceNoiseW,
-            minLengthScale = config.fitScale,
-            pauseS = config.voicePause,
-            threads = config.threads,
-            baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f),
-            pitchSemitones = config.voicePitch
-        )
+        progress(0.02f, if (useCb) "Chatterbox serveriga ulanilmoqda…" else "Ovoz komponenti yuklanmoqda…")
+        var vitsSynth: VitsSynthesizer? = null
+        fun vits(): VitsSynthesizer {
+            vitsSynth?.let { return it }
+            val loaded = VitsSynthesizer.load(
+                dir, norm,
+                noiseScale = config.voiceNoise,
+                noiseScaleW = config.voiceNoiseW,
+                minLengthScale = config.fitScale,
+                pauseS = config.voicePause,
+                threads = config.threads,
+                baseLengthScale = 1f / config.voiceSpeed.coerceAtLeast(0.3f),
+                pitchSemitones = config.voicePitch
+            )
+            vitsSynth = loaded
+            return loaded
+        }
+        val cb = if (useCb) ChatterboxClient(config.cbUrl, config.cbToken) else null
+        var cbFails = 0
+        var cbOff = false
+        var fallbacks = 0
+        fun synthSeg(text: String, slot: Double): VitsSynthesizer.SegmentAudio {
+            if (cb != null && !cbOff) {
+                try {
+                    val r = cb.synthesize(text, cbRef)
+                    cbFails = 0
+                    return r
+                } catch (e: ChatterboxClient.ChatterboxException) {
+                    cbFails++
+                    Timber.w("Chatterbox xato ($cbFails): ${e.message}")
+                    if (!vitsOk) throw IllegalStateException("Chatterbox serveri: ${e.message}")
+                    if (cbFails >= 3) cbOff = true
+                    fallbacks++
+                }
+            }
+            return vits().synthesize(text, slot)
+        }
         try {
             active.forEachIndexed { i, u ->
                 progress(0.05f + 0.55f * i / active.size, "Ovozlashtirish ${i + 1}/${active.size}")
                 val next = active.getOrNull(i + 1)?.start
                 val slot = (next ?: duration) - u.start
                 val availSec = (slot - config.marginS).coerceAtLeast(0.3)
-                var seg = synth.synthesize(u.uzText, slot.coerceAtLeast(0.3))
+                var seg = synthSeg(u.uzText, slot.coerceAtLeast(0.3))
                 // Sig'masa: qisqaroq tarjima nomzodini sinaymiz (faqat foydalanuvchi matnni o'zgartirmagan bo'lsa)
                 if (seg.durationSec > availSec * 1.12 && u.alts.size > 1 && u.alts[0] == u.uzText) {
                     for (alt in u.alts.drop(1).take(3)) {
-                        val s2 = synth.synthesize(alt, slot.coerceAtLeast(0.3))
+                        val s2 = synthSeg(alt, slot.coerceAtLeast(0.3))
                         if (s2.durationSec <= availSec * 1.12) {
                             seg = s2
                             usedText[u.id] = alt
@@ -575,7 +643,7 @@ class DubbingPipeline {
                 placer.place(u.id, u.start, next, pcm)?.let { clips.add(it) }
             }
         } finally {
-            synth.close()
+            vitsSynth?.close()
         }
         if (clips.isEmpty()) throw IllegalStateException("Ovoz hosil bo'lmadi (matn bo'sh yoki o'qib bo'lmadi)")
 
@@ -614,7 +682,10 @@ class DubbingPipeline {
             Timber.w(e, "Tarix/SRT yozilmadi")
         }
         val fast = clips.count { it.speed > 1.2f }
-        progress(1f, if (fast > 0) "Tayyor ($fast ta gap tezlashtirilgan)" else "Tayyor")
+        val notes = ArrayList<String>()
+        if (fast > 0) notes.add("$fast ta gap tezlashtirilgan")
+        if (fallbacks > 0) notes.add("$fallbacks ta gap offline ovozda")
+        progress(1f, if (notes.isEmpty()) "Tayyor" else "Tayyor (${notes.joinToString(", ")})")
         return outFile
     }
 
